@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*github.com/fatih/color.Color).Print
+        - (*github.com/fatih/color.Color).Printf
+        - (*github.com/fatih/color.Color).Println
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
