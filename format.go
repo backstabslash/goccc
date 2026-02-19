@@ -1,0 +1,344 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+
+	"github.com/fatih/color"
+)
+
+func fmtTokens(n int) string {
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%.1fB", float64(n)/1_000_000_000)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+func fmtCost(c float64) string {
+	if c >= 1.0 {
+		return fmt.Sprintf("$%.2f", c)
+	}
+	return fmt.Sprintf("$%.4f", c)
+}
+
+func colorCost(c float64, width int) string {
+	s := fmt.Sprintf("%*s", width, fmtCost(c))
+	switch {
+	case c >= 10.0:
+		return color.RedString(s)
+	case c >= 1.0:
+		return color.YellowString(s)
+	default:
+		return color.GreenString(s)
+	}
+}
+
+func shortProject(slug string) string {
+	s := slug
+	for _, prefix := range []string{"-Users-", "-home-"} {
+		if idx := strings.Index(s, prefix); idx >= 0 {
+			rest := s[idx+len(prefix):]
+			if slashIdx := strings.Index(rest, "-"); slashIdx >= 0 {
+				s = rest[slashIdx+1:]
+			}
+		}
+	}
+
+	parts := strings.Split(s, "-")
+	var filtered []string
+	for _, p := range parts {
+		if p != "" {
+			filtered = append(filtered, p)
+		}
+	}
+	name := strings.Join(filtered, "/")
+	if name == "" {
+		name = slug
+	}
+	if len(name) > 40 {
+		name = "..." + name[len(name)-37:]
+	}
+	return name
+}
+
+type OutputOptions struct {
+	ShowDaily    bool
+	ShowProjects bool
+	TopN         int
+	JSONOutput   bool
+}
+
+func printJSON(data *ParseResult, opts OutputOptions) {
+	type jsonModelRow struct {
+		Model        string  `json:"model"`
+		InputTokens  int     `json:"input_tokens"`
+		OutputTokens int     `json:"output_tokens"`
+		CacheRead    int     `json:"cache_read_tokens"`
+		CacheWrite   int     `json:"cache_write_tokens"`
+		Requests     int     `json:"requests"`
+		Cost         float64 `json:"cost"`
+	}
+
+	type jsonDailyRow struct {
+		Date     string  `json:"date"`
+		Model    string  `json:"model"`
+		Requests int     `json:"requests"`
+		Cost     float64 `json:"cost"`
+	}
+
+	type jsonProjectRow struct {
+		Project  string  `json:"project"`
+		Model    string  `json:"model"`
+		Requests int     `json:"requests"`
+		Cost     float64 `json:"cost"`
+	}
+
+	var totalCost float64
+	var totalInput, totalOutput, totalCacheR, totalCacheW int
+	var models []jsonModelRow
+
+	for model, b := range data.ModelUsage {
+		cw := b.TotalCacheWrite()
+		models = append(models, jsonModelRow{
+			Model: shortModel(model), InputTokens: b.InputTokens,
+			OutputTokens: b.OutputTokens, CacheRead: b.CacheRead,
+			CacheWrite: cw, Requests: b.Requests, Cost: b.Cost,
+		})
+		totalCost += b.Cost
+		totalInput += b.InputTokens
+		totalOutput += b.OutputTokens
+		totalCacheR += b.CacheRead
+		totalCacheW += cw
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].Cost > models[j].Cost })
+
+	out := struct {
+		Summary  interface{} `json:"summary"`
+		Models   interface{} `json:"models"`
+		Daily    interface{} `json:"daily,omitempty"`
+		Projects interface{} `json:"projects,omitempty"`
+	}{
+		Summary: struct {
+			TotalCost         float64 `json:"total_cost"`
+			TotalRequests     int     `json:"total_requests"`
+			TotalInput        int     `json:"total_input_tokens"`
+			TotalOutput       int     `json:"total_output_tokens"`
+			TotalCacheRead    int     `json:"total_cache_read_tokens"`
+			TotalCacheWrite   int     `json:"total_cache_write_tokens"`
+			FilesParsed       int     `json:"files_parsed"`
+			DuplicatesRemoved int     `json:"duplicates_removed"`
+		}{totalCost, data.TotalRecords, totalInput, totalOutput, totalCacheR, totalCacheW, data.TotalFiles, data.TotalDeduped},
+		Models: models,
+	}
+
+	if opts.ShowDaily {
+		var daily []jsonDailyRow
+		for date, dayModels := range data.DailyUsage {
+			for model, b := range dayModels {
+				daily = append(daily, jsonDailyRow{Date: date, Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+			}
+		}
+		sort.Slice(daily, func(i, j int) bool {
+			if daily[i].Date != daily[j].Date {
+				return daily[i].Date > daily[j].Date
+			}
+			return daily[i].Cost > daily[j].Cost
+		})
+		out.Daily = daily
+	}
+
+	if opts.ShowProjects {
+		var projects []jsonProjectRow
+		for slug, projModels := range data.ProjectUsage {
+			for model, b := range projModels {
+				projects = append(projects, jsonProjectRow{Project: shortProject(slug), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+			}
+		}
+		sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
+		out.Projects = projects
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(out)
+}
+
+type modelEntry struct {
+	name   string
+	bucket *Bucket
+}
+
+func printSummary(data *ParseResult, opts OutputOptions) {
+	bold := color.New(color.Bold)
+	cyan := color.New(color.FgCyan)
+	dim := color.New(color.Faint)
+
+	fmt.Println()
+	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
+	bold.Println("  Claude Code Usage Report")
+	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
+	fmt.Printf("  Parsed %d log files, %d API calls ", data.TotalFiles, data.TotalRecords)
+	dim.Printf("(%d streaming duplicates removed)\n", data.TotalDeduped)
+	if data.ParseErrors > 0 {
+		dim.Printf("  (%d parse errors skipped)\n", data.ParseErrors)
+	}
+	fmt.Println()
+
+	// Model breakdown
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println("  MODEL BREAKDOWN")
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("  %-16s %9s %9s %9s %9s %7s %10s\n",
+		"Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
+	fmt.Println("  " + strings.Repeat("─", 75))
+
+	var totalCost float64
+	var totalInput, totalOutput, totalCacheR, totalCacheW, totalReqs int
+
+	var models []modelEntry
+	for name, b := range data.ModelUsage {
+		models = append(models, modelEntry{name, b})
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].bucket.Cost > models[j].bucket.Cost })
+
+	for _, m := range models {
+		b := m.bucket
+		cw := b.TotalCacheWrite()
+		name := shortModel(m.name)
+		fmt.Printf("  %s %9s %9s %9s %9s %7d %s\n",
+			cyan.Sprintf("%-16s", name),
+			fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
+			fmtTokens(b.CacheRead), fmtTokens(cw),
+			b.Requests, colorCost(b.Cost, 10))
+		totalCost += b.Cost
+		totalInput += b.InputTokens
+		totalOutput += b.OutputTokens
+		totalCacheR += b.CacheRead
+		totalCacheW += cw
+		totalReqs += b.Requests
+	}
+
+	fmt.Println("  " + strings.Repeat("─", 75))
+	bold.Printf("  %-16s %9s %9s %9s %9s %7d %s\n",
+		"TOTAL",
+		fmtTokens(totalInput), fmtTokens(totalOutput),
+		fmtTokens(totalCacheR), fmtTokens(totalCacheW),
+		totalReqs, colorCost(totalCost, 10))
+	fmt.Println()
+
+	// Daily breakdown
+	if opts.ShowDaily {
+		bold.Println("───────────────────────────────────────────────────────────────────────────────")
+		bold.Println("  DAILY BREAKDOWN")
+		bold.Println("───────────────────────────────────────────────────────────────────────────────")
+		fmt.Printf("  %-12s %-16s %9s %9s %7s %10s\n",
+			"Date", "Model", "Input", "Output", "Reqs", "Cost")
+		fmt.Println("  " + strings.Repeat("─", 75))
+
+		var dates []string
+		for d := range data.DailyUsage {
+			dates = append(dates, d)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+		if len(dates) > opts.TopN {
+			dates = dates[:opts.TopN]
+		}
+
+		for _, date := range dates {
+			dayModels := data.DailyUsage[date]
+			var dayCost float64
+			var dayReqs int
+
+			var sorted []modelEntry
+			for name, b := range dayModels {
+				sorted = append(sorted, modelEntry{name, b})
+				dayCost += b.Cost
+				dayReqs += b.Requests
+			}
+			sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
+
+			first := true
+			for _, m := range sorted {
+				b := m.bucket
+				d := ""
+				if first {
+					d = date
+				}
+				fmt.Printf("  %-12s %s %9s %9s %7d %s\n",
+					d, cyan.Sprintf("%-16s", shortModel(m.name)),
+					fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
+					b.Requests, colorCost(b.Cost, 10))
+				first = false
+			}
+			fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
+				"", "", "", "", dayReqs, colorCost(dayCost, 10))
+			fmt.Println()
+		}
+	}
+
+	// Project breakdown
+	if opts.ShowProjects {
+		bold.Println("───────────────────────────────────────────────────────────────────────────────")
+		bold.Println("  PROJECT BREAKDOWN")
+		bold.Println("───────────────────────────────────────────────────────────────────────────────")
+		fmt.Printf("  %-35s %-16s %7s %10s\n",
+			"Project", "Model", "Reqs", "Cost")
+		fmt.Println("  " + strings.Repeat("─", 75))
+
+		type projTotal struct {
+			slug  string
+			total float64
+		}
+		var projects []projTotal
+		for slug, projModels := range data.ProjectUsage {
+			var t float64
+			for _, b := range projModels {
+				t += b.Cost
+			}
+			projects = append(projects, projTotal{slug, t})
+		}
+		sort.Slice(projects, func(i, j int) bool { return projects[i].total > projects[j].total })
+		if len(projects) > opts.TopN {
+			projects = projects[:opts.TopN]
+		}
+
+		for _, proj := range projects {
+			projModels := data.ProjectUsage[proj.slug]
+			name := shortProject(proj.slug)
+
+			var sorted []modelEntry
+			for mname, b := range projModels {
+				sorted = append(sorted, modelEntry{mname, b})
+			}
+			sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
+
+			first := true
+			for _, m := range sorted {
+				b := m.bucket
+				n := ""
+				if first {
+					n = name
+					if len(n) > 35 {
+						n = n[:32] + "..."
+					}
+				}
+				fmt.Printf("  %-35s %s %7d %s\n",
+					n, cyan.Sprintf("%-16s", shortModel(m.name)),
+					b.Requests, colorCost(b.Cost, 10))
+				first = false
+			}
+			fmt.Printf("  %-35s %-16s %7s %s\n",
+				"", "SUBTOTAL", "", colorCost(proj.total, 10))
+			fmt.Println()
+		}
+	}
+}
