@@ -19,12 +19,6 @@ Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, 
 
 ## Install
 
-### Homebrew
-
-```bash
-brew install backstabslash/tap/goccc
-```
-
 ### Go
 
 ```bash
@@ -48,8 +42,20 @@ goccc
 # Last 7 days with daily and project breakdowns
 goccc -days 7 -all
 
-# Filter by project name
-goccc -project myapp -daily
+# Daily breakdown only
+goccc -daily
+
+# Project breakdown only
+goccc -projects
+
+# Filter by project name (substring match)
+goccc -project webapp -daily
+
+# Today's usage
+goccc -days 1
+
+# Top 5 most expensive projects
+goccc -projects -top 5
 
 # JSON output for scripting
 goccc -days 30 -all -json
