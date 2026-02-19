@@ -22,6 +22,7 @@ func main() {
 	jsonOutput := flag.Bool("json", false, "Output as JSON")
 	noColor := flag.Bool("no-color", false, "Disable colored output")
 	showVersion := flag.Bool("version", false, "Show version")
+	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
@@ -36,6 +37,11 @@ func main() {
 
 	if *noColor || os.Getenv("NO_COLOR") != "" {
 		color.NoColor = true
+	}
+
+	if *statusline {
+		runStatusline(*baseDir)
+		return
 	}
 
 	if *all {

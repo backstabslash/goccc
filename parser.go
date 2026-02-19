@@ -54,6 +54,77 @@ type dedupRecord struct {
 	Usage        Usage
 }
 
+func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord) (rawCount, parseErrs int, fileErr error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var rec jsonRecord
+		if err := json.Unmarshal(line, &rec); err != nil {
+			parseErrs++
+			continue
+		}
+
+		if rec.Type != "assistant" {
+			continue
+		}
+		if rec.Message.Usage == nil || rec.Message.Model == "" {
+			continue
+		}
+		if rec.Message.Model == "<synthetic>" {
+			continue
+		}
+
+		if hasCutoff {
+			if rec.Timestamp == "" {
+				continue
+			}
+			ts, err := time.Parse(time.RFC3339, rec.Timestamp)
+			if err == nil && ts.Before(cutoff) {
+				continue
+			}
+		}
+
+		rawCount++
+		usage := *rec.Message.Usage
+
+		requestID := rec.RequestID
+		if requestID == "" {
+			requestID = fmt.Sprintf("_noid_%s_%d", filepath.Base(path), rawCount)
+		}
+
+		dateStr := "unknown"
+		if len(rec.Timestamp) >= 10 {
+			dateStr = rec.Timestamp[:10]
+		}
+
+		cache5m, cache1h := usage.CacheWriteTokens()
+
+		deduped[requestID] = &dedupRecord{
+			Model:        rec.Message.Model,
+			Project:      projectSlug,
+			Date:         dateStr,
+			InputTokens:  usage.InputTokens,
+			OutputTokens: usage.OutputTokens,
+			CacheRead:    usage.CacheReadInputTokens,
+			CacheWrite5m: cache5m,
+			CacheWrite1h: cache1h,
+			Usage:        usage,
+		}
+	}
+	return rawCount, parseErrs, nil
+}
+
 func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, error) {
 	var cutoff time.Time
 	if days > 0 {
@@ -90,71 +161,13 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		}
 
 		totalFiles++
-		f, err := os.Open(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, err)
+		raw, pErr, fErr := parseFile(path, cutoff, days > 0, projectSlug, deduped)
+		if fErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
 			return nil
 		}
-		defer func() { _ = f.Close() }()
-
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-
-			var rec jsonRecord
-			if err := json.Unmarshal(line, &rec); err != nil {
-				parseErrors++
-				continue
-			}
-
-			if rec.Type != "assistant" {
-				continue
-			}
-			if rec.Message.Usage == nil || rec.Message.Model == "" {
-				continue
-			}
-
-			if days > 0 {
-				if rec.Timestamp == "" {
-					continue
-				}
-				ts, err := time.Parse(time.RFC3339, rec.Timestamp)
-				if err == nil && ts.Before(cutoff) {
-					continue
-				}
-			}
-
-			rawRecords++
-			usage := *rec.Message.Usage
-
-			requestID := rec.RequestID
-			if requestID == "" {
-				requestID = fmt.Sprintf("_noid_%d", rawRecords)
-			}
-
-			dateStr := "unknown"
-			if len(rec.Timestamp) >= 10 {
-				dateStr = rec.Timestamp[:10]
-			}
-
-			cache5m, cache1h := usage.CacheWriteTokens()
-
-			deduped[requestID] = &dedupRecord{
-				Model:        rec.Message.Model,
-				Project:      projectSlug,
-				Date:         dateStr,
-				InputTokens:  usage.InputTokens,
-				OutputTokens: usage.OutputTokens,
-				CacheRead:    usage.CacheReadInputTokens,
-				CacheWrite5m: cache5m,
-				CacheWrite1h: cache1h,
-				Usage:        usage,
-			}
-		}
+		rawRecords += raw
+		parseErrors += pErr
 		return nil
 	})
 	if err != nil {

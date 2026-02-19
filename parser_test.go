@@ -520,6 +520,24 @@ func TestEmptyProject(t *testing.T) {
 	}
 }
 
+func TestSkipsSyntheticErrorEntries(t *testing.T) {
+	lines := []string{
+		makeRecord("req_1", "claude-opus-4-6", ts(0, 10), 100, 50, 0, 0, 0),
+		`{"type":"assistant","requestId":"req_err","timestamp":"` + ts(0, 11) + `","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Claude AI usage limit reached|1755295200"}],"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"isApiErrorMessage":true}`,
+	}
+	base := setupProject(t, "test-project", lines)
+	data, err := parseLogs(base, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.TotalRecords != 1 {
+		t.Errorf("expected 1 record (synthetic skipped), got %d", data.TotalRecords)
+	}
+	if _, ok := data.ModelUsage["<synthetic>"]; ok {
+		t.Error("synthetic model should not appear in results")
+	}
+}
+
 func TestNoProjectsDir(t *testing.T) {
 	base := t.TempDir()
 	_, err := parseLogs(base, 0, "")

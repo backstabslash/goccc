@@ -3,9 +3,19 @@
 [![CI](https://github.com/backstabslash/goccc/actions/workflows/ci.yml/badge.svg)](https://github.com/backstabslash/goccc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A fast CLI tool that parses [Claude Code](https://code.claude.com/docs/en/overview) log files and calculates your API usage costs.
+A fast CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview).
 
-Reads JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, and project.
+Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, and project — with accurate per-model pricing including separate cache write tiers.
+
+## Table of Contents
+
+- [Install](#install)
+- [Usage](#usage)
+- [Claude Code Statusline](#claude-code-statusline)
+- [Example Output](#example-output)
+- [Flags](#flags)
+- [How It Works](#how-it-works)
+- [Preserving Log History](#preserving-log-history)
 
 ## Install
 
@@ -48,20 +58,35 @@ goccc -days 30 -all -json
 goccc -json | jq '.summary.total_cost'
 ```
 
-## Flags
+## Claude Code Statusline
 
-| Flag | Short | Default | Description |
-| ------ | ------- | --------- | ------------- |
-| `-days` | `-d` | `0` | Only show the last N calendar days (0 = all time) |
-| `-project` | `-p` | | Filter by project name (substring, case-insensitive) |
-| `-daily` | | `false` | Show daily breakdown |
-| `-projects` | | `false` | Show per-project breakdown |
-| `-all` | | `false` | Show all breakdowns (daily + projects) |
-| `-top` | `-n` | `15` | Max entries in breakdowns |
-| `-json` | | `false` | Output as JSON |
-| `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
-| `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
-| `-version` | | | Print version and exit |
+goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider — a live cost dashboard right in your terminal prompt.
+
+```text
+💸 $1.23 session | 💰 $5.67 today | 💭 45% ctx | 🤖 Opus 4.6
+```
+
+- **💸 Session cost** — parsed from the current session's JSONL files using goccc's pricing table
+- **💰 Today's total** — aggregated across all sessions today (shown only when higher than session cost)
+- **💭 Context %** — context window usage percentage
+- **🤖 Model** — current model
+
+Cost and context values are color-coded: green → yellow → red as they increase.
+
+### Setup
+
+Add this to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "go run github.com/backstabslash/goccc@latest -statusline"
+  }
+}
+```
+
+Using `go run ...@latest` ensures you always get the latest version (cached after first download). This requires Go to be installed.
 
 ## Example Output
 
@@ -82,6 +107,22 @@ goccc -json | jq '.summary.total_cost'
   ───────────────────────────────────────────────────────────────────────────
   TOTAL              27.8K    214.9K     45.8M      5.5M     935     $59.82
 ```
+
+## Flags
+
+| Flag | Short | Default | Description |
+| ------ | ------- | --------- | ------------- |
+| `-days` | `-d` | `0` | Only show the last N calendar days (0 = all time) |
+| `-project` | `-p` | | Filter by project name (substring, case-insensitive) |
+| `-daily` | | `false` | Show daily breakdown |
+| `-projects` | | `false` | Show per-project breakdown |
+| `-all` | | `false` | Show all breakdowns (daily + projects) |
+| `-top` | `-n` | `15` | Max entries in breakdowns |
+| `-json` | | `false` | Output as JSON |
+| `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
+| `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
+| `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
+| `-version` | | | Print version and exit |
 
 ## How It Works
 
