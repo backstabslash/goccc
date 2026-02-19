@@ -1,3 +1,4 @@
 goccc
 dist/
 *.exe
+settings.local.json

@@ -61,6 +61,7 @@ goccc -json | jq '.summary.total_cost'
 | `-json` | | `false` | Output as JSON |
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
+| `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
 | `-version` | | | Print version and exit |
 
 ## Example Output
@@ -82,6 +83,36 @@ goccc -json | jq '.summary.total_cost'
   ───────────────────────────────────────────────────────────────────────────
   TOTAL              27.8K    214.9K     45.8M      5.5M     935     $59.82
 ```
+
+## Claude Code Statusline
+
+goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider, showing session cost, today's total, context window usage, and model — all calculated with goccc's own pricing table.
+
+Add this to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "go run github.com/backstabslash/goccc@latest -statusline"
+  }
+}
+```
+
+Using `go run ...@latest` ensures you always get the latest version (cached after first download). This requires Go to be installed.
+
+Output example:
+
+```text
+💸 $1.23 session | 💰 $5.67 today | 💭 45% ctx | 🤖 Opus 4.6
+```
+
+- **Session cost** — parsed from the current session's JSONL files
+- **Today's total** — aggregated across all sessions today (shown only when higher than session cost)
+- **Context %** — context window usage percentage
+- **Model** — current model
+
+Cost and context values are color-coded: green → yellow → red as they increase.
 
 ## How It Works
 
