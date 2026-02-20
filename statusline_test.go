@@ -186,12 +186,20 @@ func TestFormatStatusline(t *testing.T) {
 			dontWant: []string{"today"},
 		},
 		{
-			name:     "today less than session omits today",
+			name:    "resumed session shows today when lower",
+			sCost:   3.00,
+			tCost:   1.00,
+			modelID: "claude-opus-4-6",
+			ctxPct:  10.0,
+			wantSub: []string{"💸 $3.00 session", "💰 $1.00 today", "💭 10% ctx"},
+		},
+		{
+			name:     "today zero omits today",
 			sCost:    3.00,
-			tCost:    1.00,
+			tCost:    0,
 			modelID:  "claude-opus-4-6",
 			ctxPct:   10.0,
-			wantSub:  []string{"💸 $3.00 session", "💭 10% ctx"},
+			wantSub:  []string{"💸 $3.00 session"},
 			dontWant: []string{"today"},
 		},
 	}

@@ -1,11 +1,13 @@
-# goccc
-
 [![CI](https://github.com/backstabslash/goccc/actions/workflows/ci.yml/badge.svg)](https://github.com/backstabslash/goccc/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/backstabslash/goccc)](https://goreportcard.com/report/github.com/backstabslash/goccc)
+[![Go Reference](https://pkg.go.dev/badge/github.com/backstabslash/goccc.svg)](https://pkg.go.dev/github.com/backstabslash/goccc)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A fast CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview).
 
 Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, and project — with accurate per-model pricing including separate cache write tiers.
+
+![goccc output](https://github.com/user-attachments/assets/2f1127b9-1c53-4949-b111-2e5ef7186a7d)
 
 ## Table of Contents
 
@@ -30,7 +32,12 @@ go install github.com/backstabslash/goccc@latest
 ```bash
 git clone https://github.com/backstabslash/goccc.git
 cd goccc
+
+# macOS / Linux
 go build -o goccc .
+
+# Windows
+go build -o goccc.exe .
 ```
 
 ## Usage
@@ -123,7 +130,7 @@ Using `go run ...@latest` ensures you always get the latest version (cached afte
 | `-daily` | | `false` | Show daily breakdown |
 | `-projects` | | `false` | Show per-project breakdown |
 | `-all` | | `false` | Show all breakdowns (daily + projects) |
-| `-top` | `-n` | `15` | Max entries in breakdowns |
+| `-top` | `-n` | `0` | Max entries in breakdowns (0 = all) |
 | `-json` | | `false` | Output as JSON |
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |

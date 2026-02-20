@@ -266,7 +266,7 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 			dates = append(dates, d)
 		}
 		sort.Sort(sort.Reverse(sort.StringSlice(dates)))
-		if len(dates) > opts.TopN {
+		if opts.TopN > 0 && len(dates) > opts.TopN {
 			dates = dates[:opts.TopN]
 		}
 
@@ -324,7 +324,7 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 			projects = append(projects, projTotal{slug, t})
 		}
 		sort.Slice(projects, func(i, j int) bool { return projects[i].total > projects[j].total })
-		if len(projects) > opts.TopN {
+		if opts.TopN > 0 && len(projects) > opts.TopN {
 			projects = projects[:opts.TopN]
 		}
 

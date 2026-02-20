@@ -44,7 +44,7 @@ func main() {
 	daily := flag.Bool("daily", false, "Show daily breakdown")
 	projects := flag.Bool("projects", false, "Show per-project breakdown")
 	all := flag.Bool("all", false, "Show all breakdowns (daily + projects)")
-	topN := flag.Int("top", 15, "Number of entries to show in breakdowns")
+	topN := flag.Int("top", 0, "Max entries in breakdowns (0 = all)")
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
@@ -58,8 +58,23 @@ func main() {
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
-	flag.IntVar(topN, "n", 15, "Short for -top")
+	flag.IntVar(topN, "n", 0, "Short for -top")
 	flag.BoolVar(showVersion, "V", false, "Short for -version")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: goccc [flags]\n\n")
+		fmt.Fprintf(os.Stderr, "A CLI cost calculator for Claude Code.\n")
+		fmt.Fprintf(os.Stderr, "Parses JSONL logs from ~/.claude/projects/ and breaks down\n")
+		fmt.Fprintf(os.Stderr, "spending by model, day, and project.\n\n")
+		fmt.Fprintf(os.Stderr, "Examples:\n")
+		fmt.Fprintf(os.Stderr, "  goccc                          All-time summary\n")
+		fmt.Fprintf(os.Stderr, "  goccc -days 7 -all             Last 7 days, all breakdowns\n")
+		fmt.Fprintf(os.Stderr, "  goccc -days 1                  Today's usage\n")
+		fmt.Fprintf(os.Stderr, "  goccc -project webapp -daily   Filter by project with daily breakdown\n")
+		fmt.Fprintf(os.Stderr, "  goccc -json | jq '.summary'    JSON output for scripting\n\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		flag.PrintDefaults()
+	}
 
 	flag.Parse()
 
