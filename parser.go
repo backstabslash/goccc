@@ -13,13 +13,13 @@ import (
 )
 
 type Bucket struct {
-	InputTokens  int     `json:"input_tokens"`
-	OutputTokens int     `json:"output_tokens"`
-	CacheRead    int     `json:"cache_read_tokens"`
-	CacheWrite5m int     `json:"-"`
-	CacheWrite1h int     `json:"-"`
-	Cost         float64 `json:"cost"`
-	Requests     int     `json:"requests"`
+	InputTokens  int
+	OutputTokens int
+	CacheRead    int
+	CacheWrite5m int
+	CacheWrite1h int
+	Cost         float64
+	Requests     int
 }
 
 func (b *Bucket) TotalCacheWrite() int { return b.CacheWrite5m + b.CacheWrite1h }
@@ -66,7 +66,7 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
-		if !bytes.Contains(line, []byte(`"type":"assistant"`)) {
+		if !bytes.Contains(line, []byte(`"type":"assistant"`)) && !bytes.Contains(line, []byte(`"type": "assistant"`)) {
 			continue
 		}
 
@@ -90,8 +90,8 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 					continue
 				}
 				dateStr = parsed.Local().Format("2006-01-02")
-			} else if len(rec.Timestamp) >= 10 {
-				dateStr = rec.Timestamp[:10]
+			} else {
+				parseErrs++
 			}
 		} else if hasCutoff {
 			continue
@@ -111,6 +111,9 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			Date:    dateStr,
 			Usage:   usage,
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return rawCount, parseErrs, err
 	}
 	return rawCount, parseErrs, nil
 }
@@ -134,6 +137,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 
 	err := filepath.WalkDir(projectsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 			return nil
 		}
 
@@ -230,4 +234,45 @@ func getOrCreateNestedBucket(m map[string]map[string]*Bucket, outerKey, innerKey
 		m[outerKey] = inner
 	}
 	return getOrCreateBucket(inner, innerKey)
+}
+
+type UsageTotals struct {
+	Cost     float64
+	Input    int
+	Output   int
+	CacheR   int
+	CacheW   int
+	CacheW5m int
+	CacheW1h int
+	Requests int
+}
+
+func (r *ParseResult) DateRange() (from, to string) {
+	for d := range r.DailyUsage {
+		if d == "unknown" {
+			continue
+		}
+		if from == "" || d < from {
+			from = d
+		}
+		if to == "" || d > to {
+			to = d
+		}
+	}
+	return
+}
+
+func (r *ParseResult) Totals() UsageTotals {
+	var t UsageTotals
+	for _, b := range r.ModelUsage {
+		t.Cost += b.Cost
+		t.Input += b.InputTokens
+		t.Output += b.OutputTokens
+		t.CacheR += b.CacheRead
+		t.CacheW5m += b.CacheWrite5m
+		t.CacheW1h += b.CacheWrite1h
+		t.Requests += b.Requests
+	}
+	t.CacheW = t.CacheW5m + t.CacheW1h
+	return t
 }

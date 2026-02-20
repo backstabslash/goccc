@@ -12,6 +12,11 @@ import (
 	"github.com/fatih/color"
 )
 
+const (
+	ctxThresholdRed    = 70.0
+	ctxThresholdYellow = 50.0
+)
+
 type StatuslineInput struct {
 	Model struct {
 		ID          string `json:"id"`
@@ -57,7 +62,9 @@ func parseSession(transcriptPath string) (map[string]*dedupRecord, error) {
 			continue
 		}
 		path := filepath.Join(subagentDir, entry.Name())
-		_, _, _ = parseFile(path, time.Time{}, false, "", deduped)
+		if _, _, err := parseFile(path, time.Time{}, false, "", deduped); err != nil {
+			fmt.Fprintf(os.Stderr, "goccc: warning: subagent %s: %v\n", entry.Name(), err)
+		}
 	}
 
 	return deduped, nil
@@ -75,9 +82,9 @@ func formatStatusline(sCost, tCost float64, input *StatuslineInput) string {
 	ctxPct := input.ContextWindow.UsedPercentage
 	ctxStr := fmt.Sprintf("%.0f%% ctx", ctxPct)
 	switch {
-	case ctxPct >= 90:
+	case ctxPct >= ctxThresholdRed:
 		ctxStr = color.RedString(ctxStr)
-	case ctxPct >= 70:
+	case ctxPct >= ctxThresholdYellow:
 		ctxStr = color.YellowString(ctxStr)
 	default:
 		ctxStr = color.GreenString(ctxStr)
@@ -116,9 +123,7 @@ func runStatusline(baseDir string) {
 	var tCost float64
 	todayData, err := parseLogs(baseDir, 1, "")
 	if err == nil {
-		for _, b := range todayData.ModelUsage {
-			tCost += b.Cost
-		}
+		tCost = todayData.Totals().Cost
 	}
 
 	fmt.Print(formatStatusline(sCost, tCost, input))

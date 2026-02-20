@@ -11,6 +11,11 @@ import (
 	"github.com/fatih/color"
 )
 
+const (
+	costThresholdRed    = 25.0
+	costThresholdYellow = 10.0
+)
+
 func fmtTokens(n int) string {
 	switch {
 	case n >= 1_000_000_000:
@@ -40,9 +45,9 @@ func fmtCost(c float64) string {
 
 func colorize(s string, cost float64) string {
 	switch {
-	case cost >= 25.0:
+	case cost >= costThresholdRed:
 		return color.RedString(s)
-	case cost >= 10.0:
+	case cost >= costThresholdYellow:
 		return color.YellowString(s)
 	default:
 		return color.GreenString(s)
@@ -86,7 +91,6 @@ type OutputOptions struct {
 	ShowDaily    bool
 	ShowProjects bool
 	TopN         int
-	JSONOutput   bool
 }
 
 func printJSON(data *ParseResult, opts OutputOptions) {
@@ -96,6 +100,8 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		OutputTokens int     `json:"output_tokens"`
 		CacheRead    int     `json:"cache_read_tokens"`
 		CacheWrite   int     `json:"cache_write_tokens"`
+		CacheWrite5m int     `json:"cache_write_5m_tokens"`
+		CacheWrite1h int     `json:"cache_write_1h_tokens"`
 		Requests     int     `json:"requests"`
 		Cost         float64 `json:"cost"`
 	}
@@ -114,22 +120,16 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Cost     float64 `json:"cost"`
 	}
 
-	var totalCost float64
-	var totalInput, totalOutput, totalCacheR, totalCacheW int
+	totals := data.Totals()
+	dateFrom, dateTo := data.DateRange()
 	var models []jsonModelRow
-
 	for model, b := range data.ModelUsage {
-		cw := b.TotalCacheWrite()
 		models = append(models, jsonModelRow{
 			Model: shortModel(model), InputTokens: b.InputTokens,
 			OutputTokens: b.OutputTokens, CacheRead: b.CacheRead,
-			CacheWrite: cw, Requests: b.Requests, Cost: b.Cost,
+			CacheWrite: b.TotalCacheWrite(), CacheWrite5m: b.CacheWrite5m,
+			CacheWrite1h: b.CacheWrite1h, Requests: b.Requests, Cost: b.Cost,
 		})
-		totalCost += b.Cost
-		totalInput += b.InputTokens
-		totalOutput += b.OutputTokens
-		totalCacheR += b.CacheRead
-		totalCacheW += cw
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].Cost > models[j].Cost })
 
@@ -140,15 +140,19 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Projects interface{} `json:"projects,omitempty"`
 	}{
 		Summary: struct {
-			TotalCost       float64 `json:"total_cost"`
-			TotalRequests   int     `json:"total_requests"`
-			TotalInput      int     `json:"total_input_tokens"`
-			TotalOutput     int     `json:"total_output_tokens"`
-			TotalCacheRead  int     `json:"total_cache_read_tokens"`
-			TotalCacheWrite int     `json:"total_cache_write_tokens"`
-			FilesParsed     int     `json:"files_parsed"`
-			DurationMs      int64   `json:"duration_ms"`
-		}{totalCost, data.TotalRecords, totalInput, totalOutput, totalCacheR, totalCacheW, data.TotalFiles, data.Duration.Milliseconds()},
+			TotalCost         float64 `json:"total_cost"`
+			TotalRequests     int     `json:"total_requests"`
+			TotalInput        int     `json:"total_input_tokens"`
+			TotalOutput       int     `json:"total_output_tokens"`
+			TotalCacheRead    int     `json:"total_cache_read_tokens"`
+			TotalCacheWrite   int     `json:"total_cache_write_tokens"`
+			TotalCacheWrite5m int     `json:"total_cache_write_5m_tokens"`
+			TotalCacheWrite1h int     `json:"total_cache_write_1h_tokens"`
+			DateFrom          string  `json:"date_from,omitempty"`
+			DateTo            string  `json:"date_to,omitempty"`
+			FilesParsed       int     `json:"files_parsed"`
+			DurationMs        int64   `json:"duration_ms"`
+		}{totals.Cost, data.TotalRecords, totals.Input, totals.Output, totals.CacheR, totals.CacheW, totals.CacheW5m, totals.CacheW1h, dateFrom, dateTo, data.TotalFiles, data.Duration.Milliseconds()},
 		Models: models,
 	}
 
@@ -203,6 +207,13 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Parsed %d log files, %d API calls ", data.TotalFiles, data.TotalRecords)
 	dim.Printf("(%s)\n", fmtDuration(data.Duration))
+	if from, to := data.DateRange(); from != "" {
+		if from == to {
+			fmt.Printf("  Date: %s\n", from)
+		} else {
+			fmt.Printf("  Period: %s to %s\n", from, to)
+		}
+	}
 	if data.ParseErrors > 0 {
 		dim.Printf("  (%d parse errors skipped)\n", data.ParseErrors)
 	}
@@ -216,8 +227,7 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 		"Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
 
-	var totalCost float64
-	var totalInput, totalOutput, totalCacheR, totalCacheW, totalReqs int
+	totals := data.Totals()
 
 	var models []modelEntry
 	for name, b := range data.ModelUsage {
@@ -227,27 +237,19 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 
 	for _, m := range models {
 		b := m.bucket
-		cw := b.TotalCacheWrite()
-		name := shortModel(m.name)
 		fmt.Printf("  %s %9s %9s %9s %9s %7d %s\n",
-			cyan.Sprintf("%-16s", name),
+			cyan.Sprintf("%-16s", shortModel(m.name)),
 			fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
-			fmtTokens(b.CacheRead), fmtTokens(cw),
+			fmtTokens(b.CacheRead), fmtTokens(b.TotalCacheWrite()),
 			b.Requests, colorCost(b.Cost, 10))
-		totalCost += b.Cost
-		totalInput += b.InputTokens
-		totalOutput += b.OutputTokens
-		totalCacheR += b.CacheRead
-		totalCacheW += cw
-		totalReqs += b.Requests
 	}
 
 	fmt.Println("  " + strings.Repeat("─", 75))
 	bold.Printf("  %-16s %9s %9s %9s %9s %7d %s\n",
 		"TOTAL",
-		fmtTokens(totalInput), fmtTokens(totalOutput),
-		fmtTokens(totalCacheR), fmtTokens(totalCacheW),
-		totalReqs, colorCost(totalCost, 10))
+		fmtTokens(totals.Input), fmtTokens(totals.Output),
+		fmtTokens(totals.CacheR), fmtTokens(totals.CacheW),
+		totals.Requests, colorCost(totals.Cost, 10))
 	fmt.Println()
 
 	// Daily breakdown

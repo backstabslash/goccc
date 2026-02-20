@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 )
 
 func TestFmtTokens(t *testing.T) {
@@ -64,6 +65,25 @@ func TestShortProject(t *testing.T) {
 		got := shortProject(tt.input)
 		if got != tt.expected {
 			t.Errorf("shortProject(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestFmtDuration(t *testing.T) {
+	tests := []struct {
+		input    time.Duration
+		expected string
+	}{
+		{500 * time.Microsecond, "500µs"},
+		{999 * time.Microsecond, "999µs"},
+		{1 * time.Millisecond, "1ms"},
+		{150 * time.Millisecond, "150ms"},
+		{1500 * time.Millisecond, "1500ms"},
+	}
+	for _, tt := range tests {
+		got := fmtDuration(tt.input)
+		if got != tt.expected {
+			t.Errorf("fmtDuration(%v) = %q, want %q", tt.input, got, tt.expected)
 		}
 	}
 }

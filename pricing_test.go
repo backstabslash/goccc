@@ -1,13 +1,8 @@
 package main
 
 import (
-	"math"
 	"testing"
 )
-
-func almostEqual(a, b, tolerance float64) bool {
-	return math.Abs(a-b) < tolerance
-}
 
 func TestResolvePricingExactMatch(t *testing.T) {
 	p := resolvePricing("claude-opus-4-6")
@@ -41,9 +36,7 @@ func TestCalcCostBasic(t *testing.T) {
 		CacheCreationInputTokens: 0,
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	if !almostEqual(cost, 30.0, 0.01) {
-		t.Errorf("expected cost=30.0, got %f", cost)
-	}
+	assertCost(t, "basic opus cost", cost, 30.0)
 }
 
 func TestCalcCostWithCache(t *testing.T) {
@@ -54,10 +47,7 @@ func TestCalcCostWithCache(t *testing.T) {
 		CacheCreationInputTokens: 1_000_000,
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	// 1M cache_read * $0.50/M + 1M cache_write_5m * $6.25/M = $6.75
-	if !almostEqual(cost, 6.75, 0.01) {
-		t.Errorf("expected cost=6.75, got %f", cost)
-	}
+	assertCost(t, "cache cost", cost, 6.75)
 }
 
 func TestCalcCostWithCacheBreakdown(t *testing.T) {
@@ -72,10 +62,7 @@ func TestCalcCostWithCacheBreakdown(t *testing.T) {
 		},
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	// 1M * $6.25/M + 1M * $10.00/M = $16.25
-	if !almostEqual(cost, 16.25, 0.01) {
-		t.Errorf("expected cost=16.25, got %f", cost)
-	}
+	assertCost(t, "cache breakdown cost", cost, 16.25)
 }
 
 func TestShortModel(t *testing.T) {

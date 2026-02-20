@@ -98,15 +98,23 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **Table-driven tests** — all tests use `[]struct{ name; input; expected }` pattern with `t.Run` subtests
 - **Shared file parsing** — `parseFile()` in parser.go is used by both `parseLogs` (directory walk) and `parseSession` (statusline single-session)
 - **Local timezone everywhere** — cutoff uses local midnight (`time.Date` with `now.Location()`), date bucketing uses `parsed.Local().Format("2006-01-02")`. Never use `UTC()` for user-facing date logic.
-- **Pre-filter before JSON parsing** — `bytes.Contains(line, "type":"assistant")` skips full `json.Unmarshal` for non-assistant lines
+- **Pre-filter before JSON parsing** — checks for both `"type":"assistant"` and `"type": "assistant"` to tolerate compact and spaced JSON formatting before full `json.Unmarshal`
+- **Scanner error checking** — always check `scanner.Err()` after the scan loop to catch I/O errors and buffer overflows
 - **Mtime-based file skipping** — when a day cutoff is active, files with `ModTime` before the cutoff are skipped entirely (safe because JSONL logs are append-only)
 - **Directory-level project filter** — `fs.SkipDir` skips entire non-matching project directories during walk
+- **Aggregate helpers on ParseResult** — `Totals()` returns a `UsageTotals` struct; `DateRange()` returns the earliest and latest dates. Both are used by format.go, statusline.go, and JSON output to avoid duplicating accumulation logic.
+- **Named threshold constants** — cost color thresholds (`costThresholdRed`, `costThresholdYellow`) and context percentage thresholds (`ctxThresholdRed`, `ctxThresholdYellow`) are named constants, not magic numbers
+- **Model name resolution via HasPrefix** — `shortModel()` strips the `claude-` prefix then uses `strings.HasPrefix` (not `Contains`) for precise matching
 
 ## Don't
 
-- Don't add new model pricing without updating both `pricingTable` and `familyPrefixes` — prefix matching depends on both
+- Don't add new model pricing without updating both `pricingTable`, `familyPrefixes`, and `shortModel()` — prefix matching and display names depend on all three
 - Don't use `log.Fatal` or `panic` — the project uses `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)` for errors
 - Don't parse timestamps with custom layouts — use `time.RFC3339` consistently, matching Claude Code's log format
 - Don't collapse `CacheWrite5m` and `CacheWrite1h` into a single field — they have different pricing multipliers
 - Don't use `time.Now().UTC().Truncate(24h)` for day boundaries — use `time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())` for local midnight
 - Don't slice timestamp strings for date extraction (`rec.Timestamp[:10]`) — parse with `time.Parse(time.RFC3339, ...)` and convert to local
+- Don't add JSON tags to `Bucket` — it's never directly marshalled; `printJSON` defines its own output structs
+- Don't use `strings.Contains` for model name matching in `shortModel()` — use `strings.HasPrefix` after stripping the `claude-` prefix to avoid false substring matches
+- Don't duplicate total accumulation — use `ParseResult.Totals()` instead of manually summing across `ModelUsage`
+- Don't ignore `scanner.Err()` after scan loops or discard `parseFile` errors from subagents — surface them to stderr

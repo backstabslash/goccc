@@ -100,7 +100,8 @@ Using `go run ...@latest` ensures you always get the latest version (cached afte
 ═══════════════════════════════════════════════════════════════════════════════
   Claude Code Usage Report
 ═══════════════════════════════════════════════════════════════════════════════
-  Parsed 1430 log files, 17588 API calls (1573ms)
+  Parsed 1430 log files, 17588 API calls (173ms)
+  Period: 2026-01-22 to 2026-02-20
 
 ───────────────────────────────────────────────────────────────────────────────
   MODEL BREAKDOWN
@@ -127,7 +128,7 @@ Using `go run ...@latest` ensures you always get the latest version (cached afte
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
-| `-version` | | | Print version and exit |
+| `-version` | `-V` | | Print version and exit |
 
 ## How It Works
 
@@ -136,7 +137,7 @@ Claude Code stores conversation logs as JSONL files under `~/.claude/projects/<p
 goccc:
 
 1. Walks `.jsonl` files under the projects directory, skipping non-matching project directories and files older than the date range (by mtime)
-2. Pre-filters lines with a byte scan before JSON parsing — only `"type":"assistant"` entries carry billing data
+2. Pre-filters lines with a byte scan before JSON parsing — only `"type":"assistant"` entries carry billing data (tolerates both compact and spaced JSON formatting)
 3. Deduplicates streaming entries by `requestId` (last entry wins)
 4. Calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing), including separate rates for 5-minute and 1-hour cache writes
 5. Aggregates by model, date (local timezone), and project

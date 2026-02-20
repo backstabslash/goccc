@@ -547,3 +547,79 @@ func TestNoProjectsDir(t *testing.T) {
 		t.Error("expected error when projects dir doesn't exist")
 	}
 }
+
+func TestTotals(t *testing.T) {
+	result := &ParseResult{
+		ModelUsage: map[string]*Bucket{
+			"claude-opus-4-6": {
+				InputTokens: 1000, OutputTokens: 500,
+				CacheRead: 200, CacheWrite5m: 100, CacheWrite1h: 50,
+				Cost: 1.5, Requests: 2,
+			},
+			"claude-haiku-4-5-20251001": {
+				InputTokens: 800, OutputTokens: 300,
+				CacheRead: 100, CacheWrite5m: 60, CacheWrite1h: 40,
+				Cost: 0.5, Requests: 3,
+			},
+		},
+	}
+
+	totals := result.Totals()
+	assertInt(t, "totals.Input", totals.Input, 1800)
+	assertInt(t, "totals.Output", totals.Output, 800)
+	assertInt(t, "totals.CacheR", totals.CacheR, 300)
+	assertInt(t, "totals.CacheW5m", totals.CacheW5m, 160)
+	assertInt(t, "totals.CacheW1h", totals.CacheW1h, 90)
+	assertInt(t, "totals.CacheW", totals.CacheW, 250)
+	assertInt(t, "totals.Requests", totals.Requests, 5)
+	assertCost(t, "totals.Cost", totals.Cost, 2.0)
+}
+
+func TestDateRange(t *testing.T) {
+	tests := []struct {
+		name             string
+		dates            []string
+		wantFrom, wantTo string
+	}{
+		{
+			name:     "multiple dates",
+			dates:    []string{"2026-02-18", "2026-02-20", "2026-02-19"},
+			wantFrom: "2026-02-18", wantTo: "2026-02-20",
+		},
+		{
+			name:     "single date",
+			dates:    []string{"2026-02-19"},
+			wantFrom: "2026-02-19", wantTo: "2026-02-19",
+		},
+		{
+			name:     "unknown dates excluded",
+			dates:    []string{"unknown", "2026-02-18", "2026-02-20"},
+			wantFrom: "2026-02-18", wantTo: "2026-02-20",
+		},
+		{
+			name:     "only unknown",
+			dates:    []string{"unknown"},
+			wantFrom: "", wantTo: "",
+		},
+		{
+			name:     "empty",
+			dates:    nil,
+			wantFrom: "", wantTo: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &ParseResult{DailyUsage: make(map[string]map[string]*Bucket)}
+			for _, d := range tt.dates {
+				r.DailyUsage[d] = map[string]*Bucket{"model": {}}
+			}
+			from, to := r.DateRange()
+			if from != tt.wantFrom {
+				t.Errorf("from = %q, want %q", from, tt.wantFrom)
+			}
+			if to != tt.wantTo {
+				t.Errorf("to = %q, want %q", to, tt.wantTo)
+			}
+		})
+	}
+}

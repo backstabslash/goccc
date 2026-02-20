@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"time"
 
@@ -44,8 +45,12 @@ func main() {
 	projects := flag.Bool("projects", false, "Show per-project breakdown")
 	all := flag.Bool("all", false, "Show all breakdowns (daily + projects)")
 	topN := flag.Int("top", 15, "Number of entries to show in breakdowns")
-	homeDir, _ := os.UserHomeDir()
-	baseDir := flag.String("base-dir", homeDir+"/.claude", "Base directory for Claude Code data")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
+		os.Exit(1)
+	}
+	baseDir := flag.String("base-dir", filepath.Join(homeDir, ".claude"), "Base directory for Claude Code data")
 	jsonOutput := flag.Bool("json", false, "Output as JSON")
 	noColor := flag.Bool("no-color", false, "Disable colored output")
 	showVersion := flag.Bool("version", false, "Show version")
@@ -54,6 +59,7 @@ func main() {
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
 	flag.IntVar(topN, "n", 15, "Short for -top")
+	flag.BoolVar(showVersion, "V", false, "Short for -version")
 
 	flag.Parse()
 
@@ -93,7 +99,6 @@ func main() {
 		ShowDaily:    *daily,
 		ShowProjects: *projects,
 		TopN:         *topN,
-		JSONOutput:   *jsonOutput,
 	}
 
 	if *jsonOutput {

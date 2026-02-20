@@ -101,31 +101,31 @@ func calcCost(model string, usage Usage) float64 {
 }
 
 func shortModel(model string) string {
-	m := strings.ToLower(model)
+	m := strings.TrimPrefix(strings.ToLower(model), "claude-")
 	switch {
-	case strings.Contains(m, "opus-4-6"):
+	case strings.HasPrefix(m, "opus-4-6"):
 		return "Opus 4.6"
-	case strings.Contains(m, "opus-4-5"):
+	case strings.HasPrefix(m, "opus-4-5"):
 		return "Opus 4.5"
-	case strings.Contains(m, "opus-4-1"):
+	case strings.HasPrefix(m, "opus-4-1"):
 		return "Opus 4.1"
-	case strings.Contains(m, "opus-4"):
+	case strings.HasPrefix(m, "opus-4"):
 		return "Opus 4"
-	case strings.Contains(m, "opus-3"):
+	case strings.HasPrefix(m, "opus-3"):
 		return "Opus 3"
-	case strings.Contains(m, "sonnet-4-6"):
+	case strings.HasPrefix(m, "sonnet-4-6"):
 		return "Sonnet 4.6"
-	case strings.Contains(m, "sonnet-4-5"):
+	case strings.HasPrefix(m, "sonnet-4-5"):
 		return "Sonnet 4.5"
-	case strings.Contains(m, "sonnet-4"):
+	case strings.HasPrefix(m, "sonnet-4"):
 		return "Sonnet 4"
-	case strings.Contains(m, "sonnet-3"):
+	case strings.HasPrefix(m, "sonnet-3"):
 		return "Sonnet 3.x"
-	case strings.Contains(m, "haiku-4-5"):
+	case strings.HasPrefix(m, "haiku-4-5"):
 		return "Haiku 4.5"
-	case strings.Contains(m, "haiku-3-5"):
+	case strings.HasPrefix(m, "haiku-3-5"):
 		return "Haiku 3.5"
-	case strings.Contains(m, "haiku-3"):
+	case strings.HasPrefix(m, "haiku-3"):
 		return "Haiku 3"
 	default:
 		return model
