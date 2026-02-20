@@ -100,18 +100,17 @@ Using `go run ...@latest` ensures you always get the latest version (cached afte
 ═══════════════════════════════════════════════════════════════════════════════
   Claude Code Usage Report
 ═══════════════════════════════════════════════════════════════════════════════
-  Parsed 1380 log files, 935 API calls (1317 streaming duplicates removed)
+  Parsed 1430 log files, 17588 API calls (1573ms)
 
 ───────────────────────────────────────────────────────────────────────────────
   MODEL BREAKDOWN
 ───────────────────────────────────────────────────────────────────────────────
   Model              Input    Output   Cache R   Cache W    Reqs       Cost
   ───────────────────────────────────────────────────────────────────────────
-  Opus 4.6           24.9K    214.7K     43.2M      5.1M     842     $58.89
-  Haiku 4.5           2.8K       168      2.3M    388.2K      80    $0.7225
-  Sonnet 4.6            13        61    206.6K     27.8K      11    $0.1670
+  Opus 4.6           14.8K    305.8K     78.0M      2.4M    1157     $70.62
+  Haiku 4.5          13.3K       544      3.2M    438.2K     140      $1.22
   ───────────────────────────────────────────────────────────────────────────
-  TOTAL              27.8K    214.9K     45.8M      5.5M     935     $59.82
+  TOTAL              28.1K    306.3K     81.2M      2.9M    1297     $71.83
 ```
 
 ## Flags
@@ -136,11 +135,11 @@ Claude Code stores conversation logs as JSONL files under `~/.claude/projects/<p
 
 goccc:
 
-1. Walks all `.jsonl` files under the projects directory
-2. Filters by project name and date range
+1. Walks `.jsonl` files under the projects directory, skipping non-matching project directories and files older than the date range (by mtime)
+2. Pre-filters lines with a byte scan before JSON parsing — only `"type":"assistant"` entries carry billing data
 3. Deduplicates streaming entries by `requestId` (last entry wins)
 4. Calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing), including separate rates for 5-minute and 1-hour cache writes
-5. Aggregates by model, date, and project
+5. Aggregates by model, date (local timezone), and project
 
 ## Preserving Log History
 

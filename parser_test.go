@@ -63,13 +63,18 @@ func makeUserRecord(timestamp string) string {
 	return fmt.Sprintf(`{"type":"user","message":{"role":"user","content":"hello"},"timestamp":%q}`, timestamp)
 }
 
+func localMidnight() time.Time {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+}
+
 func ts(daysAgo int, hour int) string {
-	t := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -daysAgo).Add(time.Duration(hour) * time.Hour)
+	t := localMidnight().AddDate(0, 0, -daysAgo).Add(time.Duration(hour) * time.Hour)
 	return t.Format(time.RFC3339)
 }
 
 func dateStr(daysAgo int) string {
-	return time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -daysAgo).Format("2006-01-02")
+	return localMidnight().AddDate(0, 0, -daysAgo).Format("2006-01-02")
 }
 
 // setupProject creates a project dir with JSONL lines and returns the base dir.
@@ -111,9 +116,6 @@ func TestDeduplicate_StreamingUpdates(t *testing.T) {
 	}
 	if data.TotalRecords != 1 {
 		t.Errorf("expected 1 deduped record, got %d", data.TotalRecords)
-	}
-	if data.TotalDeduped != 1 {
-		t.Errorf("expected 1 duplicate removed, got %d", data.TotalDeduped)
 	}
 	opus := data.ModelUsage["claude-opus-4-6"]
 	if opus == nil {
@@ -271,7 +273,7 @@ func TestDaysFilter_OneDayMeansToday(t *testing.T) {
 
 func TestDaysFilter_BoundaryExactCutoff(t *testing.T) {
 	// A record at 00:00:00 on the cutoff day should be included
-	cutoffDay := time.Now().UTC().Truncate(24 * time.Hour).AddDate(0, 0, -2)
+	cutoffDay := localMidnight().AddDate(0, 0, -2)
 	atMidnight := cutoffDay.Format(time.RFC3339)
 	beforeMidnight := cutoffDay.Add(-1 * time.Second).Format(time.RFC3339)
 
@@ -493,7 +495,7 @@ func TestSkipsNonAssistantRecords(t *testing.T) {
 
 func TestSkipsMalformedJSON(t *testing.T) {
 	lines := []string{
-		"this is not json",
+		`{"type":"assistant", this is not valid json}`,
 		makeRecord("req_1", "claude-opus-4-6", ts(0, 10), 100, 50, 0, 0, 0),
 	}
 	base := setupProject(t, "test-project", lines)

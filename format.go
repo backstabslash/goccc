@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -23,6 +24,13 @@ func fmtTokens(n int) string {
 	}
 }
 
+func fmtDuration(d time.Duration) string {
+	if d < time.Millisecond {
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	}
+	return fmt.Sprintf("%dms", d.Milliseconds())
+}
+
 func fmtCost(c float64) string {
 	if c >= 1.0 {
 		return fmt.Sprintf("$%.2f", c)
@@ -30,16 +38,19 @@ func fmtCost(c float64) string {
 	return fmt.Sprintf("$%.4f", c)
 }
 
-func colorCost(c float64, width int) string {
-	s := fmt.Sprintf("%*s", width, fmtCost(c))
+func colorize(s string, cost float64) string {
 	switch {
-	case c >= 10.0:
+	case cost >= 25.0:
 		return color.RedString(s)
-	case c >= 1.0:
+	case cost >= 10.0:
 		return color.YellowString(s)
 	default:
 		return color.GreenString(s)
 	}
+}
+
+func colorCost(c float64, width int) string {
+	return colorize(fmt.Sprintf("%*s", width, fmtCost(c)), c)
 }
 
 func shortProject(slug string) string {
@@ -53,21 +64,22 @@ func shortProject(slug string) string {
 		}
 	}
 
-	parts := strings.Split(s, "-")
-	var filtered []string
-	for _, p := range parts {
-		if p != "" {
-			filtered = append(filtered, p)
-		}
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
 	}
-	name := strings.Join(filtered, "/")
-	if name == "" {
-		name = slug
+	s = strings.Trim(s, "-")
+
+	if idx := strings.Index(s, "-"); idx >= 0 {
+		s = s[:idx] + "/" + s[idx+1:]
 	}
-	if len(name) > 40 {
-		name = "..." + name[len(name)-37:]
+
+	if s == "" {
+		s = slug
 	}
-	return name
+	if len(s) > 40 {
+		s = "..." + s[len(s)-37:]
+	}
+	return s
 }
 
 type OutputOptions struct {
@@ -128,15 +140,15 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Projects interface{} `json:"projects,omitempty"`
 	}{
 		Summary: struct {
-			TotalCost         float64 `json:"total_cost"`
-			TotalRequests     int     `json:"total_requests"`
-			TotalInput        int     `json:"total_input_tokens"`
-			TotalOutput       int     `json:"total_output_tokens"`
-			TotalCacheRead    int     `json:"total_cache_read_tokens"`
-			TotalCacheWrite   int     `json:"total_cache_write_tokens"`
-			FilesParsed       int     `json:"files_parsed"`
-			DuplicatesRemoved int     `json:"duplicates_removed"`
-		}{totalCost, data.TotalRecords, totalInput, totalOutput, totalCacheR, totalCacheW, data.TotalFiles, data.TotalDeduped},
+			TotalCost       float64 `json:"total_cost"`
+			TotalRequests   int     `json:"total_requests"`
+			TotalInput      int     `json:"total_input_tokens"`
+			TotalOutput     int     `json:"total_output_tokens"`
+			TotalCacheRead  int     `json:"total_cache_read_tokens"`
+			TotalCacheWrite int     `json:"total_cache_write_tokens"`
+			FilesParsed     int     `json:"files_parsed"`
+			DurationMs      int64   `json:"duration_ms"`
+		}{totalCost, data.TotalRecords, totalInput, totalOutput, totalCacheR, totalCacheW, data.TotalFiles, data.Duration.Milliseconds()},
 		Models: models,
 	}
 
@@ -190,7 +202,7 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	bold.Println("  Claude Code Usage Report")
 	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Parsed %d log files, %d API calls ", data.TotalFiles, data.TotalRecords)
-	dim.Printf("(%d streaming duplicates removed)\n", data.TotalDeduped)
+	dim.Printf("(%s)\n", fmtDuration(data.Duration))
 	if data.ParseErrors > 0 {
 		dim.Printf("  (%d parse errors skipped)\n", data.ParseErrors)
 	}

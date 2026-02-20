@@ -48,15 +48,15 @@ func TestShortProject(t *testing.T) {
 	}{
 		// macOS paths: strip -Users-<user>- prefix
 		{"-Users-john-repos-myproject", "repos/myproject"},
-		{"-Users-john-repos-org-subdir", "repos/org/subdir"},
+		{"-Users-john-repos-org-subdir", "repos/org-subdir"},
 		// Linux paths: strip -home-<user>- prefix
 		{"-home-john-repos-myproject", "repos/myproject"},
-		// No prefix to strip
+		// No prefix to strip — first hyphen becomes /
 		{"simple-project", "simple/project"},
-		// Empty segments filtered
+		// Double hyphens collapsed
 		{"a--b", "a/b"},
 		// Truncation at 40 chars
-		{"a-very-long-project-name-that-exceeds-the-forty-character-limit", "...hat/exceeds/the/forty/character/limit"},
+		{"a-very-long-project-name-that-exceeds-the-forty-character-limit", "...hat-exceeds-the-forty-character-limit"},
 		// Empty slug returns original
 		{"", ""},
 	}

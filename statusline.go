@@ -72,18 +72,6 @@ func sessionCost(deduped map[string]*dedupRecord) float64 {
 }
 
 func formatStatusline(sCost, tCost float64, input *StatuslineInput) string {
-	costFn := func(c float64) string {
-		s := fmtCost(c)
-		switch {
-		case c >= 10.0:
-			return color.RedString(s)
-		case c >= 1.0:
-			return color.YellowString(s)
-		default:
-			return color.GreenString(s)
-		}
-	}
-
 	ctxPct := input.ContextWindow.UsedPercentage
 	ctxStr := fmt.Sprintf("%.0f%% ctx", ctxPct)
 	switch {
@@ -97,9 +85,9 @@ func formatStatusline(sCost, tCost float64, input *StatuslineInput) string {
 
 	modelStr := color.CyanString(shortModel(input.Model.ID))
 
-	parts := []string{"💸 " + costFn(sCost) + " session"}
+	parts := []string{"💸 " + colorCost(sCost, 0) + " session"}
 	if tCost > sCost {
-		parts = append(parts, "💰 "+costFn(tCost)+" today")
+		parts = append(parts, "💰 "+colorCost(tCost, 0)+" today")
 	}
 	parts = append(parts, "💭 "+ctxStr, "🤖 "+modelStr)
 

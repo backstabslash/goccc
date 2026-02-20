@@ -97,6 +97,10 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **Cache write tiers** — always distinguish 5-minute (`1.25x input`) and 1-hour (`2.0x input`) cache write costs separately
 - **Table-driven tests** — all tests use `[]struct{ name; input; expected }` pattern with `t.Run` subtests
 - **Shared file parsing** — `parseFile()` in parser.go is used by both `parseLogs` (directory walk) and `parseSession` (statusline single-session)
+- **Local timezone everywhere** — cutoff uses local midnight (`time.Date` with `now.Location()`), date bucketing uses `parsed.Local().Format("2006-01-02")`. Never use `UTC()` for user-facing date logic.
+- **Pre-filter before JSON parsing** — `bytes.Contains(line, "type":"assistant")` skips full `json.Unmarshal` for non-assistant lines
+- **Mtime-based file skipping** — when a day cutoff is active, files with `ModTime` before the cutoff are skipped entirely (safe because JSONL logs are append-only)
+- **Directory-level project filter** — `fs.SkipDir` skips entire non-matching project directories during walk
 
 ## Don't
 
@@ -104,3 +108,5 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - Don't use `log.Fatal` or `panic` — the project uses `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)` for errors
 - Don't parse timestamps with custom layouts — use `time.RFC3339` consistently, matching Claude Code's log format
 - Don't collapse `CacheWrite5m` and `CacheWrite1h` into a single field — they have different pricing multipliers
+- Don't use `time.Now().UTC().Truncate(24h)` for day boundaries — use `time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())` for local midnight
+- Don't slice timestamp strings for date extraction (`rec.Timestamp[:10]`) — parse with `time.Parse(time.RFC3339, ...)` and convert to local

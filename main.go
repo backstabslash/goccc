@@ -5,17 +5,35 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"time"
 
 	"github.com/fatih/color"
 )
 
-var version = "dev"
+var version string
+
+func resolveVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			if len(s.Value) > 7 {
+				return s.Value[:7]
+			}
+			return s.Value
+		}
+	}
+	return "dev"
+}
 
 func init() {
-	if version == "dev" {
-		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			version = info.Main.Version
-		}
+	if version == "" {
+		version = resolveVersion()
 	}
 }
 
@@ -58,11 +76,13 @@ func main() {
 		*projects = true
 	}
 
+	start := time.Now()
 	data, err := parseLogs(*baseDir, *days, *project)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	data.Duration = time.Since(start)
 
 	if data.TotalRecords == 0 {
 		fmt.Println("No usage data found.")

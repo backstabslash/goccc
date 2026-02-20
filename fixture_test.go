@@ -31,14 +31,6 @@ func TestFixture_RealisticConversation(t *testing.T) {
 		t.Errorf("TotalRecords = %d, want 7", data.TotalRecords)
 	}
 
-	// 11 raw assistant records passed filters, 7 survived dedup → 4 removed.
-	//   req_main_001 had 3 streaming entries (2 removed)
-	//   req_main_003 had 2 streaming entries (1 removed)
-	//   req_sub_002  had 2 streaming entries (1 removed)
-	if data.TotalDeduped != 4 {
-		t.Errorf("TotalDeduped = %d, want 4", data.TotalDeduped)
-	}
-
 	if data.ParseErrors != 0 {
 		t.Errorf("ParseErrors = %d, want 0", data.ParseErrors)
 	}

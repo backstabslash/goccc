@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,8 +30,8 @@ type ParseResult struct {
 	ProjectUsage map[string]map[string]*Bucket
 	TotalFiles   int
 	TotalRecords int
-	TotalDeduped int
 	ParseErrors  int
+	Duration     time.Duration
 }
 
 type jsonRecord struct {
@@ -43,15 +45,10 @@ type jsonRecord struct {
 }
 
 type dedupRecord struct {
-	Model        string
-	Project      string
-	Date         string
-	InputTokens  int
-	OutputTokens int
-	CacheRead    int
-	CacheWrite5m int
-	CacheWrite1h int
-	Usage        Usage
+	Model   string
+	Project string
+	Date    string
+	Usage   Usage
 }
 
 func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord) (rawCount, parseErrs int, fileErr error) {
@@ -69,13 +66,13 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
-		var rec jsonRecord
-		if err := json.Unmarshal(line, &rec); err != nil {
-			parseErrs++
+		if !bytes.Contains(line, []byte(`"type":"assistant"`)) {
 			continue
 		}
 
-		if rec.Type != "assistant" {
+		var rec jsonRecord
+		if err := json.Unmarshal(line, &rec); err != nil {
+			parseErrs++
 			continue
 		}
 		if rec.Message.Usage == nil || rec.Message.Model == "" {
@@ -85,14 +82,19 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
-		if hasCutoff {
-			if rec.Timestamp == "" {
-				continue
+		dateStr := "unknown"
+		if rec.Timestamp != "" {
+			parsed, err := time.Parse(time.RFC3339, rec.Timestamp)
+			if err == nil {
+				if hasCutoff && parsed.Before(cutoff) {
+					continue
+				}
+				dateStr = parsed.Local().Format("2006-01-02")
+			} else if len(rec.Timestamp) >= 10 {
+				dateStr = rec.Timestamp[:10]
 			}
-			ts, err := time.Parse(time.RFC3339, rec.Timestamp)
-			if err == nil && ts.Before(cutoff) {
-				continue
-			}
+		} else if hasCutoff {
+			continue
 		}
 
 		rawCount++
@@ -103,23 +105,11 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			requestID = fmt.Sprintf("_noid_%s_%d", filepath.Base(path), rawCount)
 		}
 
-		dateStr := "unknown"
-		if len(rec.Timestamp) >= 10 {
-			dateStr = rec.Timestamp[:10]
-		}
-
-		cache5m, cache1h := usage.CacheWriteTokens()
-
 		deduped[requestID] = &dedupRecord{
-			Model:        rec.Message.Model,
-			Project:      projectSlug,
-			Date:         dateStr,
-			InputTokens:  usage.InputTokens,
-			OutputTokens: usage.OutputTokens,
-			CacheRead:    usage.CacheReadInputTokens,
-			CacheWrite5m: cache5m,
-			CacheWrite1h: cache1h,
-			Usage:        usage,
+			Model:   rec.Message.Model,
+			Project: projectSlug,
+			Date:    dateStr,
+			Usage:   usage,
 		}
 	}
 	return rawCount, parseErrs, nil
@@ -128,7 +118,8 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, error) {
 	var cutoff time.Time
 	if days > 0 {
-		cutoff = time.Now().UTC().Truncate(24 * time.Hour).AddDate(0, 0, -(days - 1))
+		now := time.Now()
+		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days-1))
 	}
 
 	projectsDir := filepath.Join(baseDir, "projects")
@@ -136,15 +127,38 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		return nil, fmt.Errorf("no projects directory found at %s", projectsDir)
 	}
 
-	var totalFiles, rawRecords, parseErrors int
+	var totalFiles, parseErrors int
 	deduped := make(map[string]*dedupRecord)
+	lowerFilter := strings.ToLower(projectFilter)
+	hasCutoff := days > 0
 
-	err := filepath.Walk(projectsDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(projectsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+
+		if d.IsDir() {
+			if path == projectsDir {
+				return nil
+			}
+			if projectFilter != "" {
+				rel, _ := filepath.Rel(projectsDir, path)
+				slug := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+				if !strings.Contains(strings.ToLower(slug), lowerFilter) {
+					return fs.SkipDir
+				}
+			}
 			return nil
+		}
+
+		if !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+
+		if hasCutoff {
+			if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
+				return nil
+			}
 		}
 
 		rel, err := filepath.Rel(projectsDir, path)
@@ -154,19 +168,12 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		parts := strings.SplitN(rel, string(filepath.Separator), 2)
 		projectSlug := parts[0]
 
-		if projectFilter != "" && !strings.Contains(
-			strings.ToLower(projectSlug), strings.ToLower(projectFilter),
-		) {
-			return nil
-		}
-
 		totalFiles++
-		raw, pErr, fErr := parseFile(path, cutoff, days > 0, projectSlug, deduped)
+		_, pErr, fErr := parseFile(path, cutoff, hasCutoff, projectSlug, deduped)
 		if fErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
 			return nil
 		}
-		rawRecords += raw
 		parseErrors += pErr
 		return nil
 	})
@@ -180,12 +187,12 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		ProjectUsage: make(map[string]map[string]*Bucket),
 		TotalFiles:   totalFiles,
 		TotalRecords: len(deduped),
-		TotalDeduped: rawRecords - len(deduped),
 		ParseErrors:  parseErrors,
 	}
 
 	for _, r := range deduped {
 		cost := calcCost(r.Model, r.Usage)
+		cache5m, cache1h := r.Usage.CacheWriteTokens()
 
 		buckets := []*Bucket{
 			getOrCreateBucket(result.ModelUsage, r.Model),
@@ -194,11 +201,11 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		}
 
 		for _, b := range buckets {
-			b.InputTokens += r.InputTokens
-			b.OutputTokens += r.OutputTokens
-			b.CacheRead += r.CacheRead
-			b.CacheWrite5m += r.CacheWrite5m
-			b.CacheWrite1h += r.CacheWrite1h
+			b.InputTokens += r.Usage.InputTokens
+			b.OutputTokens += r.Usage.OutputTokens
+			b.CacheRead += r.Usage.CacheReadInputTokens
+			b.CacheWrite5m += cache5m
+			b.CacheWrite1h += cache1h
 			b.Cost += cost
 			b.Requests++
 		}
