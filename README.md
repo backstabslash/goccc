@@ -76,12 +76,13 @@ goccc -json | jq '.summary.total_cost'
 goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider — a live cost dashboard right in your terminal prompt.
 
 ```text
-💸 $1.23 session | 💰 $5.67 today | 💭 45% ctx | 🤖 Opus 4.6
+💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔌 2 MCPs (confluence, jira) · 🤖 Opus 4.6
 ```
 
 - **💸 Session cost** — parsed from the current session's JSONL files using goccc's pricing table
 - **💰 Today's total** — aggregated across all sessions today (shown only when higher than session cost)
 - **💭 Context %** — context window usage percentage
+- **🔌 MCPs** — active MCP servers (from settings, marketplace plugins, and project config; respects per-project disables)
 - **🤖 Model** — current model
 
 Cost and context values are color-coded: green → yellow → red as they increase.
@@ -100,6 +101,8 @@ Add this to `~/.claude/settings.json`:
 ```
 
 Using `go run ...@latest` ensures you always get the latest version (cached after first download). This requires Go to be installed.
+
+To hide the MCP indicator, add `-no-mcp`.
 
 ## Example Output
 
@@ -135,6 +138,7 @@ Using `go run ...@latest` ensures you always get the latest version (cached afte
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
+| `-no-mcp` | | `false` | Hide MCP servers from statusline output |
 | `-version` | `-V` | | Print version and exit |
 
 ## How It Works

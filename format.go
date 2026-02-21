@@ -90,6 +90,7 @@ func shortProject(slug string) string {
 type OutputOptions struct {
 	ShowDaily    bool
 	ShowProjects bool
+	ShowBranches bool
 	TopN         int
 }
 
@@ -120,6 +121,13 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Cost     float64 `json:"cost"`
 	}
 
+	type jsonBranchRow struct {
+		Branch   string  `json:"branch"`
+		Model    string  `json:"model"`
+		Requests int     `json:"requests"`
+		Cost     float64 `json:"cost"`
+	}
+
 	totals := data.Totals()
 	dateFrom, dateTo := data.DateRange()
 	var models []jsonModelRow
@@ -138,6 +146,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Models   interface{} `json:"models"`
 		Daily    interface{} `json:"daily,omitempty"`
 		Projects interface{} `json:"projects,omitempty"`
+		Branches interface{} `json:"branches,omitempty"`
 	}{
 		Summary: struct {
 			TotalCost         float64 `json:"total_cost"`
@@ -181,6 +190,22 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		}
 		sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
 		out.Projects = projects
+	}
+
+	if opts.ShowBranches {
+		var branches []jsonBranchRow
+		for _, branchMap := range data.BranchUsage {
+			for branch, models := range branchMap {
+				for model, b := range models {
+					branches = append(branches, jsonBranchRow{
+						Branch: branch,
+						Model:  shortModel(model), Requests: b.Requests, Cost: b.Cost,
+					})
+				}
+			}
+		}
+		sort.Slice(branches, func(i, j int) bool { return branches[i].Cost > branches[j].Cost })
+		out.Branches = branches
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -357,5 +382,61 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 				"", "SUBTOTAL", "", colorCost(proj.total, 10))
 			fmt.Println()
 		}
+	}
+
+	// Branch breakdown (only shown with -project filter, so always one project)
+	if opts.ShowBranches {
+		bold.Println("───────────────────────────────────────────────────────────────────────────────")
+		bold.Println("  BRANCH BREAKDOWN")
+		bold.Println("───────────────────────────────────────────────────────────────────────────────")
+		fmt.Printf("  %-30s %-16s %7s %10s\n",
+			"Branch", "Model", "Reqs", "Cost")
+		fmt.Println("  " + strings.Repeat("─", 75))
+
+		type branchTotal struct {
+			branch string
+			total  float64
+		}
+
+		for _, branchMap := range data.BranchUsage {
+			var branchList []branchTotal
+			for br, models := range branchMap {
+				var bt float64
+				for _, b := range models {
+					bt += b.Cost
+				}
+				branchList = append(branchList, branchTotal{br, bt})
+			}
+			sort.Slice(branchList, func(i, j int) bool { return branchList[i].total > branchList[j].total })
+			if opts.TopN > 0 && len(branchList) > opts.TopN {
+				branchList = branchList[:opts.TopN]
+			}
+
+			for _, br := range branchList {
+				models := branchMap[br.branch]
+				var sorted []modelEntry
+				for mname, b := range models {
+					sorted = append(sorted, modelEntry{mname, b})
+				}
+				sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
+
+				firstBranch := true
+				for _, m := range sorted {
+					b := m.bucket
+					bn := ""
+					if firstBranch {
+						bn = br.branch
+						if len(bn) > 30 {
+							bn = bn[:27] + "..."
+						}
+					}
+					fmt.Printf("  %-30s %s %7d %s\n",
+						bn, cyan.Sprintf("%-16s", shortModel(m.name)),
+						b.Requests, colorCost(b.Cost, 10))
+					firstBranch = false
+				}
+			}
+		}
+		fmt.Println()
 	}
 }

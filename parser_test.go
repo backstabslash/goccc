@@ -548,6 +548,112 @@ func TestNoProjectsDir(t *testing.T) {
 	}
 }
 
+// --- Branch Aggregation ---
+
+func makeRecordWithBranch(requestID, model, timestamp string, input, output, cacheRead, cacheWrite5m, cacheWrite1h int, gitBranch string) string {
+	type cacheCreation struct {
+		Ephemeral5m int `json:"ephemeral_5m_input_tokens"`
+		Ephemeral1h int `json:"ephemeral_1h_input_tokens"`
+	}
+	type usage struct {
+		InputTokens              int            `json:"input_tokens"`
+		OutputTokens             int            `json:"output_tokens"`
+		CacheReadInputTokens     int            `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens int            `json:"cache_creation_input_tokens"`
+		CacheCreation            *cacheCreation `json:"cache_creation,omitempty"`
+	}
+	type message struct {
+		Model string `json:"model"`
+		Role  string `json:"role"`
+		Usage usage  `json:"usage"`
+	}
+	type record struct {
+		Type      string  `json:"type"`
+		RequestID string  `json:"requestId"`
+		Timestamp string  `json:"timestamp"`
+		GitBranch string  `json:"gitBranch,omitempty"`
+		Message   message `json:"message"`
+	}
+
+	var cc *cacheCreation
+	if cacheWrite5m > 0 || cacheWrite1h > 0 {
+		cc = &cacheCreation{Ephemeral5m: cacheWrite5m, Ephemeral1h: cacheWrite1h}
+	}
+	rec := record{
+		Type: "assistant", RequestID: requestID, Timestamp: timestamp, GitBranch: gitBranch,
+		Message: message{Model: model, Role: "assistant", Usage: usage{
+			InputTokens: input, OutputTokens: output,
+			CacheReadInputTokens:     cacheRead,
+			CacheCreationInputTokens: cacheWrite5m + cacheWrite1h,
+			CacheCreation:            cc,
+		}},
+	}
+	b, _ := json.Marshal(rec)
+	return string(b)
+}
+
+func TestBranchAggregation(t *testing.T) {
+	base := setupProject(t, "project-alpha", []string{
+		makeRecordWithBranch("req_1", "claude-opus-4-6", ts(0, 10), 100, 50, 0, 0, 0, "main"),
+		makeRecordWithBranch("req_2", "claude-opus-4-6", ts(0, 11), 200, 100, 0, 0, 0, "feature/auth"),
+		makeRecordWithBranch("req_3", "claude-sonnet-4-6", ts(0, 12), 80, 30, 0, 0, 0, "main"),
+	})
+	addProject(t, base, "project-beta", []string{
+		makeRecordWithBranch("req_4", "claude-opus-4-6", ts(0, 13), 150, 75, 0, 0, 0, "main"),
+	})
+
+	data, err := parseLogs(base, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alpha := data.BranchUsage["project-alpha"]
+	if alpha == nil {
+		t.Fatal("missing project-alpha in BranchUsage")
+	}
+	if len(alpha) != 2 {
+		t.Errorf("expected 2 branches in project-alpha, got %d", len(alpha))
+	}
+	if alpha["main"]["claude-opus-4-6"].Requests != 1 {
+		t.Error("wrong main opus count in project-alpha")
+	}
+	if alpha["main"]["claude-sonnet-4-6"].Requests != 1 {
+		t.Error("wrong main sonnet count in project-alpha")
+	}
+	if alpha["feature/auth"]["claude-opus-4-6"].Requests != 1 {
+		t.Error("wrong feature/auth count in project-alpha")
+	}
+
+	beta := data.BranchUsage["project-beta"]
+	if beta == nil {
+		t.Fatal("missing project-beta in BranchUsage")
+	}
+	if beta["main"]["claude-opus-4-6"].Requests != 1 {
+		t.Error("wrong main count in project-beta")
+	}
+}
+
+func TestBranchAggregation_NoBranch(t *testing.T) {
+	base := setupProject(t, "test-project", []string{
+		makeRecord("req_1", "claude-opus-4-6", ts(0, 10), 100, 50, 0, 0, 0),
+	})
+	data, err := parseLogs(base, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proj := data.BranchUsage["test-project"]
+	if proj == nil {
+		t.Fatal("missing project in BranchUsage")
+	}
+	if _, ok := proj["(no branch)"]; !ok {
+		t.Error("expected (no branch) bucket for records without gitBranch")
+	}
+	if proj["(no branch)"]["claude-opus-4-6"].Requests != 1 {
+		t.Error("wrong (no branch) request count")
+	}
+}
+
 func TestTotals(t *testing.T) {
 	result := &ParseResult{
 		ModelUsage: map[string]*Bucket{

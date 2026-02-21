@@ -28,6 +28,7 @@ type ParseResult struct {
 	ModelUsage   map[string]*Bucket
 	DailyUsage   map[string]map[string]*Bucket
 	ProjectUsage map[string]map[string]*Bucket
+	BranchUsage  map[string]map[string]map[string]*Bucket
 	TotalFiles   int
 	TotalRecords int
 	ParseErrors  int
@@ -38,6 +39,7 @@ type jsonRecord struct {
 	Type      string `json:"type"`
 	RequestID string `json:"requestId"`
 	Timestamp string `json:"timestamp"`
+	GitBranch string `json:"gitBranch"`
 	Message   struct {
 		Model string `json:"model"`
 		Usage *Usage `json:"usage"`
@@ -48,6 +50,7 @@ type dedupRecord struct {
 	Model   string
 	Project string
 	Date    string
+	Branch  string
 	Usage   Usage
 }
 
@@ -100,6 +103,11 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 		rawCount++
 		usage := *rec.Message.Usage
 
+		branch := rec.GitBranch
+		if branch == "" {
+			branch = "(no branch)"
+		}
+
 		requestID := rec.RequestID
 		if requestID == "" {
 			requestID = fmt.Sprintf("_noid_%s_%d", filepath.Base(path), rawCount)
@@ -109,6 +117,7 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			Model:   rec.Message.Model,
 			Project: projectSlug,
 			Date:    dateStr,
+			Branch:  branch,
 			Usage:   usage,
 		}
 	}
@@ -189,6 +198,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		ModelUsage:   make(map[string]*Bucket),
 		DailyUsage:   make(map[string]map[string]*Bucket),
 		ProjectUsage: make(map[string]map[string]*Bucket),
+		BranchUsage:  make(map[string]map[string]map[string]*Bucket),
 		TotalFiles:   totalFiles,
 		TotalRecords: len(deduped),
 		ParseErrors:  parseErrors,
@@ -202,6 +212,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 			getOrCreateBucket(result.ModelUsage, r.Model),
 			getOrCreateNestedBucket(result.DailyUsage, r.Date, r.Model),
 			getOrCreateNestedBucket(result.ProjectUsage, r.Project, r.Model),
+			getOrCreate3LevelBucket(result.BranchUsage, r.Project, r.Branch, r.Model),
 		}
 
 		for _, b := range buckets {
@@ -234,6 +245,15 @@ func getOrCreateNestedBucket(m map[string]map[string]*Bucket, outerKey, innerKey
 		m[outerKey] = inner
 	}
 	return getOrCreateBucket(inner, innerKey)
+}
+
+func getOrCreate3LevelBucket(m map[string]map[string]map[string]*Bucket, k1, k2, k3 string) *Bucket {
+	level2, ok := m[k1]
+	if !ok {
+		level2 = make(map[string]map[string]*Bucket)
+		m[k1] = level2
+	}
+	return getOrCreateNestedBucket(level2, k2, k3)
 }
 
 type UsageTotals struct {

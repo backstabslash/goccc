@@ -55,6 +55,7 @@ func main() {
 	noColor := flag.Bool("no-color", false, "Disable colored output")
 	showVersion := flag.Bool("version", false, "Show version")
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
+	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
@@ -71,6 +72,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  goccc -days 7 -all             Last 7 days, all breakdowns\n")
 		fmt.Fprintf(os.Stderr, "  goccc -days 1                  Today's usage\n")
 		fmt.Fprintf(os.Stderr, "  goccc -project webapp -daily   Filter by project with daily breakdown\n")
+
 		fmt.Fprintf(os.Stderr, "  goccc -json | jq '.summary'    JSON output for scripting\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
@@ -88,7 +90,7 @@ func main() {
 	}
 
 	if *statusline {
-		runStatusline(*baseDir)
+		runStatusline(*baseDir, *noMCP)
 		return
 	}
 

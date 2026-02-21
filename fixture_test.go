@@ -136,6 +136,22 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	}
 	assertCost(t, "project.opus.Cost", proj["claude-opus-4-6"].Cost, 1.2335)
 	assertCost(t, "project.haiku.Cost", proj["claude-haiku-4-5-20251001"].Cost, 0.057625)
+
+	// --- Branch aggregation ---
+	// All fixture entries have gitBranch:"main"
+	branchData := data.BranchUsage["C--Users-alice-git-webapp"]
+	if branchData == nil {
+		t.Fatal("missing branch data for project")
+	}
+	mainBranch := branchData["main"]
+	if mainBranch == nil {
+		t.Fatal("missing 'main' branch bucket")
+	}
+	if len(mainBranch) != 2 {
+		t.Errorf("expected 2 models in main branch, got %d", len(mainBranch))
+	}
+	assertCost(t, "branch.main.opus.Cost", mainBranch["claude-opus-4-6"].Cost, 1.2335)
+	assertCost(t, "branch.main.haiku.Cost", mainBranch["claude-haiku-4-5-20251001"].Cost, 0.057625)
 }
 
 func TestFixture_SyntheticEntriesSkipped(t *testing.T) {
