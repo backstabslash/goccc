@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -62,7 +63,7 @@ func doUpdateCheck(current string) *updateResult {
 			if ts, err := time.Parse(time.RFC3339, parts[0]); err == nil {
 				if time.Since(ts) < updateCheckInterval {
 					latest := strings.TrimSpace(parts[1])
-					if latest != "" && normalizeVersion(latest) != normalizeVersion(current) {
+					if latest != "" && isNewer(latest, current) {
 						return &updateResult{Latest: latest, Stale: true}
 					}
 					return nil
@@ -76,7 +77,7 @@ func doUpdateCheck(current string) *updateResult {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -88,7 +89,7 @@ func doUpdateCheck(current string) *updateResult {
 	_ = os.MkdirAll(filepath.Dir(cacheFile), 0o755)
 	_ = os.WriteFile(cacheFile, []byte(time.Now().Format(time.RFC3339)+"\n"+release.TagName+"\n"), 0o644)
 
-	if normalizeVersion(release.TagName) != normalizeVersion(current) {
+	if isNewer(release.TagName, current) {
 		return &updateResult{Latest: release.TagName, Stale: true}
 	}
 	return nil
@@ -96,6 +97,35 @@ func doUpdateCheck(current string) *updateResult {
 
 func normalizeVersion(v string) string {
 	return strings.TrimPrefix(v, "v")
+}
+
+func parseSemver(v string) (major, minor, patch int, ok bool) {
+	parts := strings.SplitN(normalizeVersion(v), ".", 3)
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(parts[1])
+	patch, err3 := strconv.Atoi(parts[2])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, 0, false
+	}
+	return major, minor, patch, true
+}
+
+func isNewer(latest, current string) bool {
+	lMaj, lMin, lPat, lok := parseSemver(latest)
+	cMaj, cMin, cPat, cok := parseSemver(current)
+	if !lok || !cok {
+		return normalizeVersion(latest) != normalizeVersion(current)
+	}
+	if lMaj != cMaj {
+		return lMaj > cMaj
+	}
+	if lMin != cMin {
+		return lMin > cMin
+	}
+	return lPat > cPat
 }
 
 func printUpdateNotice(res *updateResult) {

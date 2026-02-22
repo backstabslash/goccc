@@ -37,7 +37,7 @@ go run . -days 7 -all        # Dev: run with flags directly
 Run before every commit:
 
 ```bash
-go vet ./... && go test ./...
+make check
 ```
 
 ## JSONL Log Format

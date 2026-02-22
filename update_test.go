@@ -44,6 +44,32 @@ func TestIsDevVersion(t *testing.T) {
 	}
 }
 
+func TestIsNewer(t *testing.T) {
+	tests := []struct {
+		name            string
+		latest, current string
+		want            bool
+	}{
+		{"patch bump", "v0.0.9", "v0.0.8", true},
+		{"minor bump", "v0.1.0", "v0.0.8", true},
+		{"major bump", "v1.0.0", "v0.9.9", true},
+		{"same version", "v0.1.0", "v0.1.0", false},
+		{"current is newer patch", "v0.0.8", "v0.1.0", false},
+		{"current is newer major", "v0.9.9", "v1.0.0", false},
+		{"without v prefix", "0.2.0", "0.1.0", true},
+		{"mixed prefix", "v0.2.0", "0.1.0", true},
+		{"unparseable latest falls back to string compare", "abc", "v0.1.0", true},
+		{"unparseable same", "abc", "abc", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNewer(tt.latest, tt.current); got != tt.want {
+				t.Errorf("isNewer(%q, %q) = %v, want %v", tt.latest, tt.current, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckForUpdateSkipsDevVersion(t *testing.T) {
 	for _, v := range []string{"dev", "v0.0.9-0.20260222164611-f6b538b59c20"} {
 		ch := checkForUpdate(v)
