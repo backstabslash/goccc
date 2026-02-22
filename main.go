@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"time"
-
-	"github.com/fatih/color"
 )
 
 var version string
@@ -55,6 +53,7 @@ func main() {
 	noColor := flag.Bool("no-color", false, "Disable colored output")
 	showVersion := flag.Bool("version", false, "Show version")
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
+	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
@@ -83,14 +82,16 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *noColor || os.Getenv("NO_COLOR") != "" {
-		color.NoColor = true
+	if *noColor {
+		noColorFlag = true
 	}
 
 	if *statusline {
-		runStatusline(*baseDir)
+		runStatusline(*baseDir, *noMCP)
 		return
 	}
+
+	updateCh := checkForUpdate(version)
 
 	if *all {
 		*daily = true
@@ -113,6 +114,7 @@ func main() {
 	opts := OutputOptions{
 		ShowDaily:    *daily,
 		ShowProjects: *projects,
+		ShowBranches: *project != "",
 		TopN:         *topN,
 	}
 
@@ -121,4 +123,6 @@ func main() {
 	} else {
 		printSummary(data, opts)
 	}
+
+	printUpdateNotice(<-updateCh)
 }

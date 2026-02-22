@@ -20,6 +20,18 @@ archives:
         formats:
           - zip
 
+brews:
+  - repository:
+      owner: backstabslash
+      name: homebrew-tap
+    homepage: https://github.com/backstabslash/goccc
+    description: "Fast, zero-dependency CLI cost calculator and statusline for Claude Code"
+    license: MIT
+    install: |
+      bin.install "goccc"
+    test: |
+      system bin/"goccc", "-version"
+
 changelog:
   sort: asc
   filters:

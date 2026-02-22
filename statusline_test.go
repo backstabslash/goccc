@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/fatih/color"
 )
 
 func TestReadStatuslineInput_Valid(t *testing.T) {
@@ -156,8 +154,8 @@ func TestSessionCost(t *testing.T) {
 }
 
 func TestFormatStatusline(t *testing.T) {
-	color.NoColor = true
-	defer func() { color.NoColor = false }()
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
 
 	tests := []struct {
 		name     string
@@ -177,13 +175,12 @@ func TestFormatStatusline(t *testing.T) {
 			wantSub: []string{"💸 $0.5000 session", "💰 $2.00 today", "💭 45% ctx", "🤖 Opus 4.6"},
 		},
 		{
-			name:     "today same as session omits today",
-			sCost:    1.50,
-			tCost:    1.50,
-			modelID:  "claude-sonnet-4-6",
-			ctxPct:   80.0,
-			wantSub:  []string{"💸 $1.50 session", "💭 80% ctx", "🤖 Sonnet 4.6"},
-			dontWant: []string{"today"},
+			name:    "today same as session still shows today",
+			sCost:   1.50,
+			tCost:   1.50,
+			modelID: "claude-sonnet-4-6",
+			ctxPct:  80.0,
+			wantSub: []string{"💸 $1.50 session", "💰 $1.50 today", "💭 80% ctx", "🤖 Sonnet 4.6"},
 		},
 		{
 			name:    "resumed session shows today when lower",
@@ -210,7 +207,7 @@ func TestFormatStatusline(t *testing.T) {
 			input.Model.ID = tt.modelID
 			input.ContextWindow.UsedPercentage = tt.ctxPct
 
-			result := formatStatusline(tt.sCost, tt.tCost, input)
+			result := formatStatusline(tt.sCost, tt.tCost, input, nil)
 			for _, sub := range tt.wantSub {
 				if !strings.Contains(result, sub) {
 					t.Errorf("output %q missing substring %q", result, sub)
@@ -222,6 +219,71 @@ func TestFormatStatusline(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFormatStatusline_WithMCPs(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := &StatuslineInput{}
+	input.Model.ID = "claude-opus-4-6"
+	input.ContextWindow.UsedPercentage = 45.0
+
+	result := formatStatusline(0.50, 2.00, input, []string{"github", "jira", "slack"})
+	if !strings.Contains(result, "🔌 3 MCPs (github, jira, slack)") {
+		t.Errorf("output %q missing MCP section", result)
+	}
+	if !strings.Contains(result, "🤖 Opus 4.6") {
+		t.Errorf("output %q missing model after MCPs", result)
+	}
+}
+
+func TestFormatStatusline_SingleMCP(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := &StatuslineInput{}
+	input.Model.ID = "claude-opus-4-6"
+	input.ContextWindow.UsedPercentage = 45.0
+
+	result := formatStatusline(0.50, 2.00, input, []string{"context7"})
+	if !strings.Contains(result, "🔌 1 MCP (context7)") {
+		t.Errorf("output %q missing singular MCP section", result)
+	}
+}
+
+func TestFormatStatusline_NoMCPs(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := &StatuslineInput{}
+	input.Model.ID = "claude-opus-4-6"
+	input.ContextWindow.UsedPercentage = 45.0
+
+	result := formatStatusline(0.50, 2.00, input, nil)
+	if strings.Contains(result, "🔌") {
+		t.Errorf("output %q should not contain MCP section when no MCPs", result)
+	}
+
+	result2 := formatStatusline(0.50, 2.00, input, []string{})
+	if strings.Contains(result2, "🔌") {
+		t.Errorf("output %q should not contain MCP section for empty slice", result2)
+	}
+}
+
+func TestFormatStatusline_ManyMCPsTruncated(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := &StatuslineInput{}
+	input.Model.ID = "claude-opus-4-6"
+	input.ContextWindow.UsedPercentage = 45.0
+
+	mcps := []string{"asana", "context7", "firebase", "github", "jira"}
+	result := formatStatusline(0.50, 2.00, input, mcps)
+	if !strings.Contains(result, "🔌 5 MCPs (asana, context7, firebase, ...)") {
+		t.Errorf("output %q missing truncated MCP section", result)
 	}
 }
 

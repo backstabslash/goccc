@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/fatih/color"
 )
 
 const (
@@ -78,30 +76,46 @@ func sessionCost(deduped map[string]*dedupRecord) float64 {
 	return total
 }
 
-func formatStatusline(sCost, tCost float64, input *StatuslineInput) string {
+func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []string) string {
 	ctxPct := input.ContextWindow.UsedPercentage
-	ctxStr := fmt.Sprintf("%.0f%% ctx", ctxPct)
+	pctStr := fmt.Sprintf("%.0f%%", ctxPct)
 	switch {
 	case ctxPct >= ctxThresholdRed:
-		ctxStr = color.RedString(ctxStr)
+		pctStr = redString(pctStr)
 	case ctxPct >= ctxThresholdYellow:
-		ctxStr = color.YellowString(ctxStr)
-	default:
-		ctxStr = color.GreenString(ctxStr)
+		pctStr = yellowString(pctStr)
 	}
+	ctxStr := pctStr + " ctx"
 
-	modelStr := color.CyanString(shortModel(input.Model.ID))
+	modelStr := shortModel(input.Model.ID)
 
 	parts := []string{"💸 " + colorCost(sCost, 0) + " session"}
-	if tCost > 0 && tCost != sCost {
+	if tCost > 0 {
 		parts = append(parts, "💰 "+colorCost(tCost, 0)+" today")
 	}
-	parts = append(parts, "💭 "+ctxStr, "🤖 "+modelStr)
+	parts = append(parts, "💭 "+ctxStr)
+	if len(mcpNames) > 0 {
+		label := "MCPs"
+		if len(mcpNames) == 1 {
+			label = "MCP"
+		}
+		const maxShown = 3
+		shown := mcpNames
+		if len(shown) > maxShown {
+			shown = shown[:maxShown]
+		}
+		list := strings.Join(shown, ", ")
+		if len(mcpNames) > maxShown {
+			list += ", ..."
+		}
+		parts = append(parts, fmt.Sprintf("🔌 %d %s (%s)", len(mcpNames), label, list))
+	}
+	parts = append(parts, "🤖 "+modelStr)
 
-	return strings.Join(parts, " | ")
+	return strings.Join(parts, " · ")
 }
 
-func runStatusline(baseDir string) {
+func runStatusline(baseDir string, noMCP bool) {
 	input, err := readStatuslineInput(os.Stdin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "goccc: %v\n", err)
@@ -126,5 +140,9 @@ func runStatusline(baseDir string) {
 		tCost = todayData.Totals().Cost
 	}
 
-	fmt.Print(formatStatusline(sCost, tCost, input))
+	var mcpNames []string
+	if !noMCP {
+		mcpNames = detectMCPs(baseDir, input.TranscriptPath)
+	}
+	fmt.Print(formatStatusline(sCost, tCost, input, mcpNames))
 }

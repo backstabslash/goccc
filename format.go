@@ -7,13 +7,11 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/fatih/color"
 )
 
 const (
-	costThresholdRed    = 25.0
-	costThresholdYellow = 10.0
+	costThresholdRed    = 50.0
+	costThresholdYellow = 25.0
 )
 
 func fmtTokens(n int) string {
@@ -46,11 +44,11 @@ func fmtCost(c float64) string {
 func colorize(s string, cost float64) string {
 	switch {
 	case cost >= costThresholdRed:
-		return color.RedString(s)
+		return redString(s)
 	case cost >= costThresholdYellow:
-		return color.YellowString(s)
+		return yellowString(s)
 	default:
-		return color.GreenString(s)
+		return s
 	}
 }
 
@@ -90,6 +88,7 @@ func shortProject(slug string) string {
 type OutputOptions struct {
 	ShowDaily    bool
 	ShowProjects bool
+	ShowBranches bool
 	TopN         int
 }
 
@@ -120,6 +119,13 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Cost     float64 `json:"cost"`
 	}
 
+	type jsonBranchRow struct {
+		Branch   string  `json:"branch"`
+		Model    string  `json:"model"`
+		Requests int     `json:"requests"`
+		Cost     float64 `json:"cost"`
+	}
+
 	totals := data.Totals()
 	dateFrom, dateTo := data.DateRange()
 	var models []jsonModelRow
@@ -138,6 +144,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Models   interface{} `json:"models"`
 		Daily    interface{} `json:"daily,omitempty"`
 		Projects interface{} `json:"projects,omitempty"`
+		Branches interface{} `json:"branches,omitempty"`
 	}{
 		Summary: struct {
 			TotalCost         float64 `json:"total_cost"`
@@ -183,6 +190,22 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		out.Projects = projects
 	}
 
+	if opts.ShowBranches {
+		var branches []jsonBranchRow
+		for _, branchMap := range data.BranchUsage {
+			for branch, models := range branchMap {
+				for model, b := range models {
+					branches = append(branches, jsonBranchRow{
+						Branch: branch,
+						Model:  shortModel(model), Requests: b.Requests, Cost: b.Cost,
+					})
+				}
+			}
+		}
+		sort.Slice(branches, func(i, j int) bool { return branches[i].Cost > branches[j].Cost })
+		out.Branches = branches
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(out); err != nil {
@@ -197,10 +220,6 @@ type modelEntry struct {
 }
 
 func printSummary(data *ParseResult, opts OutputOptions) {
-	bold := color.New(color.Bold)
-	cyan := color.New(color.FgCyan)
-	dim := color.New(color.Faint)
-
 	fmt.Println()
 	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
 	bold.Println("  Claude Code Usage Report")
@@ -252,110 +271,179 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 		totals.Requests, colorCost(totals.Cost, 10))
 	fmt.Println()
 
-	// Daily breakdown
 	if opts.ShowDaily {
-		bold.Println("───────────────────────────────────────────────────────────────────────────────")
-		bold.Println("  DAILY BREAKDOWN")
-		bold.Println("───────────────────────────────────────────────────────────────────────────────")
-		fmt.Printf("  %-12s %-16s %9s %9s %7s %10s\n",
-			"Date", "Model", "Input", "Output", "Reqs", "Cost")
-		fmt.Println("  " + strings.Repeat("─", 75))
+		printDailyBreakdown(data, opts)
+	}
+	if opts.ShowProjects {
+		printProjectBreakdown(data, opts)
+	}
+	if opts.ShowBranches {
+		printBranchBreakdown(data, opts)
+	}
+}
 
-		var dates []string
-		for d := range data.DailyUsage {
-			dates = append(dates, d)
-		}
-		sort.Sort(sort.Reverse(sort.StringSlice(dates)))
-		if opts.TopN > 0 && len(dates) > opts.TopN {
-			dates = dates[:opts.TopN]
-		}
+func printDailyBreakdown(data *ParseResult, opts OutputOptions) {
 
-		for _, date := range dates {
-			dayModels := data.DailyUsage[date]
-			var dayCost float64
-			var dayReqs int
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println("  DAILY BREAKDOWN")
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("  %-12s %-16s %9s %9s %7s %10s\n",
+		"Date", "Model", "Input", "Output", "Reqs", "Cost")
+	fmt.Println("  " + strings.Repeat("─", 75))
 
-			var sorted []modelEntry
-			for name, b := range dayModels {
-				sorted = append(sorted, modelEntry{name, b})
-				dayCost += b.Cost
-				dayReqs += b.Requests
-			}
-			sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
-
-			first := true
-			for _, m := range sorted {
-				b := m.bucket
-				d := ""
-				if first {
-					d = date
-				}
-				fmt.Printf("  %-12s %s %9s %9s %7d %s\n",
-					d, cyan.Sprintf("%-16s", shortModel(m.name)),
-					fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
-					b.Requests, colorCost(b.Cost, 10))
-				first = false
-			}
-			fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
-				"", "", "", "", dayReqs, colorCost(dayCost, 10))
-			fmt.Println()
-		}
+	var dates []string
+	for d := range data.DailyUsage {
+		dates = append(dates, d)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+	if opts.TopN > 0 && len(dates) > opts.TopN {
+		dates = dates[:opts.TopN]
 	}
 
-	// Project breakdown
-	if opts.ShowProjects {
-		bold.Println("───────────────────────────────────────────────────────────────────────────────")
-		bold.Println("  PROJECT BREAKDOWN")
-		bold.Println("───────────────────────────────────────────────────────────────────────────────")
-		fmt.Printf("  %-35s %-16s %7s %10s\n",
-			"Project", "Model", "Reqs", "Cost")
-		fmt.Println("  " + strings.Repeat("─", 75))
+	for _, date := range dates {
+		dayModels := data.DailyUsage[date]
+		var dayCost float64
+		var dayReqs int
 
-		type projTotal struct {
-			slug  string
-			total float64
+		var sorted []modelEntry
+		for name, b := range dayModels {
+			sorted = append(sorted, modelEntry{name, b})
+			dayCost += b.Cost
+			dayReqs += b.Requests
 		}
-		var projects []projTotal
-		for slug, projModels := range data.ProjectUsage {
-			var t float64
-			for _, b := range projModels {
-				t += b.Cost
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
+
+		first := true
+		for _, m := range sorted {
+			b := m.bucket
+			d := ""
+			if first {
+				d = date
 			}
-			projects = append(projects, projTotal{slug, t})
+			fmt.Printf("  %-12s %s %9s %9s %7d %s\n",
+				d, cyan.Sprintf("%-16s", shortModel(m.name)),
+				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
+				b.Requests, colorCost(b.Cost, 10))
+			first = false
 		}
-		sort.Slice(projects, func(i, j int) bool { return projects[i].total > projects[j].total })
-		if opts.TopN > 0 && len(projects) > opts.TopN {
-			projects = projects[:opts.TopN]
+		fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
+			"", "", "", "", dayReqs, colorCost(dayCost, 10))
+		fmt.Println()
+	}
+}
+
+func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
+
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println("  PROJECT BREAKDOWN")
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("  %-35s %-16s %7s %10s\n",
+		"Project", "Model", "Reqs", "Cost")
+	fmt.Println("  " + strings.Repeat("─", 75))
+
+	type projTotal struct {
+		slug  string
+		total float64
+	}
+	var projects []projTotal
+	for slug, projModels := range data.ProjectUsage {
+		var t float64
+		for _, b := range projModels {
+			t += b.Cost
+		}
+		projects = append(projects, projTotal{slug, t})
+	}
+	sort.Slice(projects, func(i, j int) bool { return projects[i].total > projects[j].total })
+	if opts.TopN > 0 && len(projects) > opts.TopN {
+		projects = projects[:opts.TopN]
+	}
+
+	for _, proj := range projects {
+		projModels := data.ProjectUsage[proj.slug]
+		name := shortProject(proj.slug)
+
+		var sorted []modelEntry
+		for mname, b := range projModels {
+			sorted = append(sorted, modelEntry{mname, b})
+		}
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
+
+		first := true
+		for _, m := range sorted {
+			b := m.bucket
+			n := ""
+			if first {
+				n = name
+				if len(n) > 35 {
+					n = n[:32] + "..."
+				}
+			}
+			fmt.Printf("  %-35s %s %7d %s\n",
+				n, cyan.Sprintf("%-16s", shortModel(m.name)),
+				b.Requests, colorCost(b.Cost, 10))
+			first = false
+		}
+		fmt.Printf("  %-35s %-16s %7s %s\n",
+			"", "SUBTOTAL", "", colorCost(proj.total, 10))
+		fmt.Println()
+	}
+}
+
+func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
+
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println("  BRANCH BREAKDOWN")
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("  %-30s %-16s %7s %10s\n",
+		"Branch", "Model", "Reqs", "Cost")
+	fmt.Println("  " + strings.Repeat("─", 75))
+
+	type branchTotal struct {
+		branch string
+		total  float64
+	}
+
+	for _, branchMap := range data.BranchUsage {
+		var branchList []branchTotal
+		for br, models := range branchMap {
+			var bt float64
+			for _, b := range models {
+				bt += b.Cost
+			}
+			branchList = append(branchList, branchTotal{br, bt})
+		}
+		sort.Slice(branchList, func(i, j int) bool { return branchList[i].total > branchList[j].total })
+		if opts.TopN > 0 && len(branchList) > opts.TopN {
+			branchList = branchList[:opts.TopN]
 		}
 
-		for _, proj := range projects {
-			projModels := data.ProjectUsage[proj.slug]
-			name := shortProject(proj.slug)
-
+		for _, br := range branchList {
+			models := branchMap[br.branch]
 			var sorted []modelEntry
-			for mname, b := range projModels {
+			for mname, b := range models {
 				sorted = append(sorted, modelEntry{mname, b})
 			}
 			sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
 
-			first := true
+			firstBranch := true
 			for _, m := range sorted {
 				b := m.bucket
-				n := ""
-				if first {
-					n = name
-					if len(n) > 35 {
-						n = n[:32] + "..."
+				bn := ""
+				if firstBranch {
+					bn = br.branch
+					if len(bn) > 30 {
+						bn = bn[:27] + "..."
 					}
 				}
-				fmt.Printf("  %-35s %s %7d %s\n",
-					n, cyan.Sprintf("%-16s", shortModel(m.name)),
+				fmt.Printf("  %-30s %s %7d %s\n",
+					bn, cyan.Sprintf("%-16s", shortModel(m.name)),
 					b.Requests, colorCost(b.Cost, 10))
-				first = false
+				firstBranch = false
 			}
-			fmt.Printf("  %-35s %-16s %7s %s\n",
-				"", "SUBTOTAL", "", colorCost(proj.total, 10))
+			fmt.Printf("  %-30s %-16s %7s %s\n",
+				"", "SUBTOTAL", "", colorCost(br.total, 10))
 			fmt.Println()
 		}
 	}
+	fmt.Println()
 }

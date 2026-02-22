@@ -28,6 +28,7 @@ type ParseResult struct {
 	ModelUsage   map[string]*Bucket
 	DailyUsage   map[string]map[string]*Bucket
 	ProjectUsage map[string]map[string]*Bucket
+	BranchUsage  map[string]map[string]map[string]*Bucket
 	TotalFiles   int
 	TotalRecords int
 	ParseErrors  int
@@ -38,6 +39,7 @@ type jsonRecord struct {
 	Type      string `json:"type"`
 	RequestID string `json:"requestId"`
 	Timestamp string `json:"timestamp"`
+	GitBranch string `json:"gitBranch"`
 	Message   struct {
 		Model string `json:"model"`
 		Usage *Usage `json:"usage"`
@@ -48,7 +50,25 @@ type dedupRecord struct {
 	Model   string
 	Project string
 	Date    string
+	Branch  string
 	Usage   Usage
+}
+
+func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr string, skip bool, parseErr bool) {
+	if timestamp == "" {
+		if hasCutoff {
+			return "", true, false
+		}
+		return "unknown", false, false
+	}
+	parsed, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return "unknown", false, true
+	}
+	if hasCutoff && parsed.Before(cutoff) {
+		return "", true, false
+	}
+	return parsed.Local().Format("2006-01-02"), false, false
 }
 
 func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord) (rawCount, parseErrs int, fileErr error) {
@@ -82,23 +102,21 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
-		dateStr := "unknown"
-		if rec.Timestamp != "" {
-			parsed, err := time.Parse(time.RFC3339, rec.Timestamp)
-			if err == nil {
-				if hasCutoff && parsed.Before(cutoff) {
-					continue
-				}
-				dateStr = parsed.Local().Format("2006-01-02")
-			} else {
-				parseErrs++
-			}
-		} else if hasCutoff {
+		dateStr, skip, pErr := parseDateStr(rec.Timestamp, cutoff, hasCutoff)
+		if pErr {
+			parseErrs++
+		}
+		if skip {
 			continue
 		}
 
 		rawCount++
 		usage := *rec.Message.Usage
+
+		branch := rec.GitBranch
+		if branch == "" {
+			branch = "(no branch)"
+		}
 
 		requestID := rec.RequestID
 		if requestID == "" {
@@ -109,6 +127,7 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			Model:   rec.Message.Model,
 			Project: projectSlug,
 			Date:    dateStr,
+			Branch:  branch,
 			Usage:   usage,
 		}
 	}
@@ -118,11 +137,68 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 	return rawCount, parseErrs, nil
 }
 
+type logWalker struct {
+	projectsDir string
+	matchedSlug string
+	hasCutoff   bool
+	cutoff      time.Time
+	deduped     map[string]*dedupRecord
+	totalFiles  int
+	parseErrors int
+}
+
+func (w *logWalker) walk(path string, d fs.DirEntry, err error) error {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		return nil
+	}
+
+	if d.IsDir() {
+		if path == w.projectsDir {
+			return nil
+		}
+		if w.matchedSlug != "" {
+			rel, _ := filepath.Rel(w.projectsDir, path)
+			slug := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+			if slug != w.matchedSlug {
+				return fs.SkipDir
+			}
+		}
+		return nil
+	}
+
+	if !strings.HasSuffix(path, ".jsonl") {
+		return nil
+	}
+
+	if w.hasCutoff {
+		if info, err := d.Info(); err == nil && info.ModTime().Before(w.cutoff) {
+			return nil
+		}
+	}
+
+	rel, err := filepath.Rel(w.projectsDir, path)
+	if err != nil {
+		return nil
+	}
+	parts := strings.SplitN(rel, string(filepath.Separator), 2)
+	projectSlug := parts[0]
+
+	w.totalFiles++
+	_, pErr, fErr := parseFile(path, w.cutoff, w.hasCutoff, projectSlug, w.deduped)
+	if fErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
+		return nil
+	}
+	w.parseErrors += pErr
+	return nil
+}
+
 func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, error) {
 	var cutoff time.Time
 	if days > 0 {
 		now := time.Now()
-		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days-1))
+		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
 	}
 
 	projectsDir := filepath.Join(baseDir, "projects")
@@ -130,58 +206,25 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		return nil, fmt.Errorf("no projects directory found at %s", projectsDir)
 	}
 
-	var totalFiles, parseErrors int
-	deduped := make(map[string]*dedupRecord)
-	lowerFilter := strings.ToLower(projectFilter)
-	hasCutoff := days > 0
+	matchedSlug := resolveProjectSlug(projectsDir, projectFilter)
+	if projectFilter != "" && matchedSlug == "" {
+		return &ParseResult{
+			ModelUsage:   make(map[string]*Bucket),
+			DailyUsage:   make(map[string]map[string]*Bucket),
+			ProjectUsage: make(map[string]map[string]*Bucket),
+			BranchUsage:  make(map[string]map[string]map[string]*Bucket),
+		}, nil
+	}
 
-	err := filepath.WalkDir(projectsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			return nil
-		}
+	w := &logWalker{
+		projectsDir: projectsDir,
+		matchedSlug: matchedSlug,
+		hasCutoff:   days > 0,
+		cutoff:      cutoff,
+		deduped:     make(map[string]*dedupRecord),
+	}
 
-		if d.IsDir() {
-			if path == projectsDir {
-				return nil
-			}
-			if projectFilter != "" {
-				rel, _ := filepath.Rel(projectsDir, path)
-				slug := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-				if !strings.Contains(strings.ToLower(slug), lowerFilter) {
-					return fs.SkipDir
-				}
-			}
-			return nil
-		}
-
-		if !strings.HasSuffix(path, ".jsonl") {
-			return nil
-		}
-
-		if hasCutoff {
-			if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
-				return nil
-			}
-		}
-
-		rel, err := filepath.Rel(projectsDir, path)
-		if err != nil {
-			return nil
-		}
-		parts := strings.SplitN(rel, string(filepath.Separator), 2)
-		projectSlug := parts[0]
-
-		totalFiles++
-		_, pErr, fErr := parseFile(path, cutoff, hasCutoff, projectSlug, deduped)
-		if fErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
-			return nil
-		}
-		parseErrors += pErr
-		return nil
-	})
-	if err != nil {
+	if err := filepath.WalkDir(projectsDir, w.walk); err != nil {
 		return nil, err
 	}
 
@@ -189,12 +232,13 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		ModelUsage:   make(map[string]*Bucket),
 		DailyUsage:   make(map[string]map[string]*Bucket),
 		ProjectUsage: make(map[string]map[string]*Bucket),
-		TotalFiles:   totalFiles,
-		TotalRecords: len(deduped),
-		ParseErrors:  parseErrors,
+		BranchUsage:  make(map[string]map[string]map[string]*Bucket),
+		TotalFiles:   w.totalFiles,
+		TotalRecords: len(w.deduped),
+		ParseErrors:  w.parseErrors,
 	}
 
-	for _, r := range deduped {
+	for _, r := range w.deduped {
 		cost := calcCost(r.Model, r.Usage)
 		cache5m, cache1h := r.Usage.CacheWriteTokens()
 
@@ -202,6 +246,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 			getOrCreateBucket(result.ModelUsage, r.Model),
 			getOrCreateNestedBucket(result.DailyUsage, r.Date, r.Model),
 			getOrCreateNestedBucket(result.ProjectUsage, r.Project, r.Model),
+			getOrCreate3LevelBucket(result.BranchUsage, r.Project, r.Branch, r.Model),
 		}
 
 		for _, b := range buckets {
@@ -216,6 +261,34 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 	}
 
 	return result, nil
+}
+
+func resolveProjectSlug(projectsDir, filter string) string {
+	if filter == "" {
+		return ""
+	}
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+	lowerFilter := strings.ToLower(filter)
+	var best string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		slug := e.Name()
+		lower := strings.ToLower(slug)
+		if lower == lowerFilter {
+			return slug
+		}
+		if strings.Contains(lower, lowerFilter) {
+			if best == "" || len(slug) < len(best) {
+				best = slug
+			}
+		}
+	}
+	return best
 }
 
 func getOrCreateBucket(m map[string]*Bucket, key string) *Bucket {
@@ -234,6 +307,15 @@ func getOrCreateNestedBucket(m map[string]map[string]*Bucket, outerKey, innerKey
 		m[outerKey] = inner
 	}
 	return getOrCreateBucket(inner, innerKey)
+}
+
+func getOrCreate3LevelBucket(m map[string]map[string]map[string]*Bucket, k1, k2, k3 string) *Bucket {
+	level2, ok := m[k1]
+	if !ok {
+		level2 = make(map[string]map[string]*Bucket)
+		m[k1] = level2
+	}
+	return getOrCreateNestedBucket(level2, k2, k3)
 }
 
 type UsageTotals struct {

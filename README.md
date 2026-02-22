@@ -1,9 +1,10 @@
 [![CI](https://github.com/backstabslash/goccc/actions/workflows/ci.yml/badge.svg)](https://github.com/backstabslash/goccc/actions/workflows/ci.yml)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/backstabslash/goccc)](https://goreportcard.com/report/github.com/backstabslash/goccc)
-[![Go Reference](https://pkg.go.dev/badge/github.com/backstabslash/goccc.svg)](https://pkg.go.dev/github.com/backstabslash/goccc)
+[![Latest Release](https://img.shields.io/github/v/release/backstabslash/goccc?color=blue)](https://github.com/backstabslash/goccc/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A fast CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview).
+A fast, zero-dependency CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview) — single binary, no runtime needed.
 
 Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, and project — with accurate per-model pricing including separate cache write tiers.
 
@@ -11,64 +12,51 @@ Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, 
 
 ## Table of Contents
 
-- [Install](#install)
+- [Installation](#installation)
 - [Usage](#usage)
 - [Claude Code Statusline](#claude-code-statusline)
-- [Example Output](#example-output)
 - [Flags](#flags)
 - [How It Works](#how-it-works)
 - [Preserving Log History](#preserving-log-history)
 
-## Install
+## Installation
 
-### Go
+### Homebrew (macOS / Linux)
+
+```bash
+brew install backstabslash/tap/goccc
+```
+
+### Alternatives
+
+**Go install** (requires Go):
 
 ```bash
 go install github.com/backstabslash/goccc@latest
 ```
 
-### From source
+**From source:**
 
 ```bash
-git clone https://github.com/backstabslash/goccc.git
-cd goccc
-
-# macOS / Linux
-go build -o goccc .
-
-# Windows
-go build -o goccc.exe .
+git clone https://github.com/backstabslash/goccc.git && cd goccc
+go build -o goccc .     # macOS / Linux
+go build -o goccc.exe . # Windows
 ```
+
+**Pre-built binaries** are available on the [releases page](https://github.com/backstabslash/goccc/releases/latest) for macOS, Linux, and Windows (amd64 / arm64).
 
 ## Usage
 
 ```bash
-# Summary of all-time usage
-goccc
-
-# Last 7 days with daily and project breakdowns
-goccc -days 7 -all
-
-# Daily breakdown only
-goccc -daily
-
-# Project breakdown only
-goccc -projects
-
-# Filter by project name (substring match)
-goccc -project webapp -daily
-
-# Today's usage
-goccc -days 1
-
-# Top 5 most expensive projects
-goccc -projects -top 5
-
-# JSON output for scripting
-goccc -days 30 -all -json
-
-# Pipe to jq for custom analysis
-goccc -json | jq '.summary.total_cost'
+goccc                              # Summary of all-time usage
+goccc -days 7 -all                 # Last 7 days with daily and project breakdowns
+goccc -daily                       # Daily breakdown only
+goccc -projects                    # Project breakdown only
+goccc -project webapp -daily       # Filter by project name (substring match)
+goccc -days 1                      # Today's usage
+goccc -projects -top 5             # Top 5 most expensive projects
+goccc -days 30 -all -json          # JSON output for scripting
+goccc -json | jq '.summary.total_cost'  # Pipe to jq for custom analysis
 ```
 
 ## Claude Code Statusline
@@ -76,19 +64,33 @@ goccc -json | jq '.summary.total_cost'
 goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider — a live cost dashboard right in your terminal prompt.
 
 ```text
-💸 $1.23 session | 💰 $5.67 today | 💭 45% ctx | 🤖 Opus 4.6
+💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔌 2 MCPs (confluence, jira) · 🤖 Opus 4.6
 ```
 
 - **💸 Session cost** — parsed from the current session's JSONL files using goccc's pricing table
 - **💰 Today's total** — aggregated across all sessions today (shown only when higher than session cost)
 - **💭 Context %** — context window usage percentage
+- **🔌 MCPs** — active MCP servers (from settings, marketplace plugins, and project config; respects per-project disables)
 - **🤖 Model** — current model
 
-Cost and context values are color-coded: green → yellow → red as they increase.
+Cost and context values are color-coded yellow → red as they increase.
 
 ### Setup
 
-Add this to `~/.claude/settings.json`:
+Add to `~/.claude/settings.json`:
+
+**Using Homebrew** (recommended — fast, no runtime needed):
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "goccc -statusline"
+  }
+}
+```
+
+**Using Go** (requires Go installed; binary is cached after first download):
 
 ```json
 {
@@ -99,32 +101,12 @@ Add this to `~/.claude/settings.json`:
 }
 ```
 
-Using `go run ...@latest` ensures you always get the latest version (cached after first download). This requires Go to be installed.
-
-## Example Output
-
-```text
-═══════════════════════════════════════════════════════════════════════════════
-  Claude Code Usage Report
-═══════════════════════════════════════════════════════════════════════════════
-  Parsed 1430 log files, 17588 API calls (173ms)
-  Period: 2026-01-22 to 2026-02-20
-
-───────────────────────────────────────────────────────────────────────────────
-  MODEL BREAKDOWN
-───────────────────────────────────────────────────────────────────────────────
-  Model              Input    Output   Cache R   Cache W    Reqs       Cost
-  ───────────────────────────────────────────────────────────────────────────
-  Opus 4.6           14.8K    305.8K     78.0M      2.4M    1157     $70.62
-  Haiku 4.5          13.3K       544      3.2M    438.2K     140      $1.22
-  ───────────────────────────────────────────────────────────────────────────
-  TOTAL              28.1K    306.3K     81.2M      2.9M    1297     $71.83
-```
+To hide the MCP indicator, add `-no-mcp`.
 
 ## Flags
 
 | Flag | Short | Default | Description |
-| ------ | ------- | --------- | ------------- |
+| --- | --- | --- | --- |
 | `-days` | `-d` | `0` | Only show the last N calendar days (0 = all time) |
 | `-project` | `-p` | | Filter by project name (substring, case-insensitive) |
 | `-daily` | | `false` | Show daily breakdown |
@@ -135,6 +117,7 @@ Using `go run ...@latest` ensures you always get the latest version (cached afte
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
+| `-no-mcp` | | `false` | Hide MCP servers from statusline output |
 | `-version` | `-V` | | Print version and exit |
 
 ## How It Works

@@ -1,6 +1,6 @@
 # goccc
 
-CLI tool that parses Claude Code JSONL logs from `~/.claude/projects/` and calculates API usage costs by model, day, and project.
+CLI tool that parses Claude Code JSONL logs from `~/.claude/projects/` and calculates API usage costs by model, day, project, and branch.
 
 ## Stack
 
@@ -15,6 +15,7 @@ Go 1.26, stdlib + fatih/color, GoReleaser for cross-platform builds
 ├── pricing.go         # Per-model pricing table, cost calculation, model name resolution
 ├── format.go          # Terminal and JSON output formatting
 ├── statusline.go      # Claude Code statusline mode (reads stdin JSON, outputs formatted cost line)
+├── mcp.go             # MCP server detection, per-project disable filtering, plugin walk
 ├── *_test.go          # Table-driven tests for each module
 ├── fixture_test.go    # Integration test against realistic JSONL fixture
 ├── testdata/          # Static JSONL fixture (multi-turn convo with subagents)
@@ -105,6 +106,14 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **Aggregate helpers on ParseResult** — `Totals()` returns a `UsageTotals` struct; `DateRange()` returns the earliest and latest dates. Both are used by format.go, statusline.go, and JSON output to avoid duplicating accumulation logic.
 - **Named threshold constants** — cost color thresholds (`costThresholdRed`, `costThresholdYellow`) and context percentage thresholds (`ctxThresholdRed`, `ctxThresholdYellow`) are named constants, not magic numbers
 - **Model name resolution via HasPrefix** — `shortModel()` strips the `claude-` prefix then uses `strings.HasPrefix` (not `Contains`) for precise matching
+- **3-level bucket nesting for branches** — `BranchUsage` is `map[project]map[branch]map[model]*Bucket`, using `getOrCreate3LevelBucket` which reuses `getOrCreateNestedBucket` for inner levels
+- **Git branch from JSONL** — `gitBranch` field on assistant entries; empty branch defaults to `"(no branch)"`
+- **MCP detection is best-effort** — all MCP detection functions return nil/empty on error; statusline never fails due to missing config
+- **MCP sources** — three detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, and project-level `.mcp.json` via `cwd` from transcript
+- **MCP per-project disable filtering** — `~/.claude.json` stores `disabledMcpServers` and `disabledMcpjsonServers` per project path; entries use plain names (`"my-server"`) or plugin format (`"plugin:<name>:<server>"`)
+- **MCP project resolution from slug** — when transcript has no `cwd` yet (fresh session), the project path is derived by matching the transcript directory slug against `~/.claude.json` project keys (slug = path with `/` replaced by `-`)
+- **Single-read config files** — `settings.json` and `~/.claude.json` are each read once and their parsed data shared across detection and filtering
+- **Plugin walk is layout-agnostic** — `parseEnabledPluginMCPs` walks the plugins dir for `.mcp.json` files and matches ancestor directory names to enabled plugin names, supporting any directory structure
 
 ## Don't
 
