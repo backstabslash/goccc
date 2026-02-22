@@ -109,7 +109,7 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **3-level bucket nesting for branches** — `BranchUsage` is `map[project]map[branch]map[model]*Bucket`, using `getOrCreate3LevelBucket` which reuses `getOrCreateNestedBucket` for inner levels
 - **Git branch from JSONL** — `gitBranch` field on assistant entries; empty branch defaults to `"(no branch)"`
 - **MCP detection is best-effort** — all MCP detection functions return nil/empty on error; statusline never fails due to missing config
-- **MCP sources** — three detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, and project-level `.mcp.json` via `cwd` from transcript
+- **MCP sources** — five detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, project-level `.mcp.json` via `cwd` from transcript, `settings.local.json` in project `.claude/`, and per-project `mcpServers` in `~/.claude.json`
 - **MCP per-project disable filtering** — `~/.claude.json` stores `disabledMcpServers` and `disabledMcpjsonServers` per project path; entries use plain names (`"my-server"`) or plugin format (`"plugin:<name>:<server>"`)
 - **MCP project resolution from slug** — when transcript has no `cwd` yet (fresh session), the project path is derived by matching the transcript directory slug against `~/.claude.json` project keys (slug = path with `/` replaced by `-`)
 - **Single-read config files** — `settings.json` and `~/.claude.json` are each read once and their parsed data shared across detection and filtering

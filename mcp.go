@@ -15,10 +15,11 @@ type claudeSettings struct {
 	EnabledPlugins map[string]bool            `json:"enabledPlugins"`
 }
 
-// claudeProjectConfig holds per-project MCP overrides from ~/.claude.json.
+// claudeProjectConfig holds per-project MCP config from ~/.claude.json.
 type claudeProjectConfig struct {
-	DisabledMCPServers     []string `json:"disabledMcpServers"`
-	DisabledMcpjsonServers []string `json:"disabledMcpjsonServers"`
+	MCPServers             map[string]json.RawMessage `json:"mcpServers"`
+	DisabledMCPServers     []string                   `json:"disabledMcpServers"`
+	DisabledMcpjsonServers []string                   `json:"disabledMcpjsonServers"`
 }
 
 func detectMCPs(claudeDir string, transcriptPath string) []string {
@@ -46,7 +47,11 @@ func detectMCPs(claudeDir string, transcriptPath string) []string {
 	if projectPath == "" {
 		projectPath = projectPathFromSlug(projects, transcriptPath)
 	}
-	disabled := collectDisabledMCPs(findProject(projects, projectPath))
+	projCfg := findProject(projects, projectPath)
+	for name := range projCfg.MCPServers {
+		allNames = append(allNames, name)
+	}
+	disabled := collectDisabledMCPs(projCfg)
 
 	return deduplicateAndSort(filterDisabled(allNames, disabled))
 }

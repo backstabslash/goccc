@@ -366,6 +366,36 @@ func TestDetectMCPs_CombinesSources(t *testing.T) {
 	}
 }
 
+func TestDetectMCPs_ClaudeJSONProjectMCPs(t *testing.T) {
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	mustMkdir(t, claudeDir)
+	mustWrite(t, filepath.Join(claudeDir, "settings.json"), []byte(`{}`))
+
+	projectPath := "/Users/testuser"
+	claudeJSON := map[string]interface{}{
+		"projects": map[string]interface{}{
+			projectPath: map[string]interface{}{
+				"mcpServers": map[string]interface{}{
+					"developer-mcp-server":       map[string]string{"command": "node"},
+					"developer-mcp-server-local": map[string]string{"command": "node"},
+				},
+				"disabledMcpServers": []string{"developer-mcp-server"},
+			},
+		},
+	}
+	cData, _ := json.Marshal(claudeJSON)
+	mustWrite(t, filepath.Join(dir, ".claude.json"), cData)
+
+	transcriptPath := filepath.Join(dir, "session.jsonl")
+	mustWrite(t, transcriptPath, []byte(`{"cwd":"`+projectPath+`"}`+"\n"))
+
+	names := detectMCPs(claudeDir, transcriptPath)
+	if len(names) != 1 || names[0] != "developer-mcp-server-local" {
+		t.Errorf("expected [developer-mcp-server-local] (other disabled), got %v", names)
+	}
+}
+
 func TestDetectMCPs_FiltersDisabled(t *testing.T) {
 	dir := t.TempDir()
 	claudeDir := filepath.Join(dir, ".claude")
