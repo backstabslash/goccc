@@ -14,6 +14,8 @@ func TestNormalizeVersion(t *testing.T) {
 		{"v1.2.3", "1.2.3"},
 		{"1.2.3", "1.2.3"},
 		{"v0.0.1", "0.0.1"},
+		{"v0.1.2+dirty", "0.1.2"},
+		{"1.0.0+build.123", "1.0.0"},
 		{"", ""},
 	}
 	for _, tt := range tests {
@@ -58,6 +60,8 @@ func TestIsNewer(t *testing.T) {
 		{"current is newer major", "v0.9.9", "v1.0.0", false},
 		{"without v prefix", "0.2.0", "0.1.0", true},
 		{"mixed prefix", "v0.2.0", "0.1.0", true},
+		{"dirty suffix same version", "v0.1.2", "v0.1.2+dirty", false},
+		{"dirty suffix older", "v0.1.3", "v0.1.2+dirty", true},
 		{"unparseable latest falls back to string compare", "abc", "v0.1.0", true},
 		{"unparseable same", "abc", "abc", false},
 	}

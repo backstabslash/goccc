@@ -445,11 +445,12 @@ func TestCacheTokenAggregation(t *testing.T) {
 	if opus.CacheRead != 800 {
 		t.Errorf("expected cache_read=800, got %d", opus.CacheRead)
 	}
-	if opus.CacheWrite5m != 200 {
-		t.Errorf("expected cache_write_5m=200, got %d", opus.CacheWrite5m)
+	// All cache writes treated as 1h (default): 5m(200+0)→1h, plus original 1h(100+150)
+	if opus.CacheWrite5m != 0 {
+		t.Errorf("expected cache_write_5m=0 (all promoted to 1h), got %d", opus.CacheWrite5m)
 	}
-	if opus.CacheWrite1h != 250 {
-		t.Errorf("expected cache_write_1h=250, got %d", opus.CacheWrite1h)
+	if opus.CacheWrite1h != 450 {
+		t.Errorf("expected cache_write_1h=450, got %d", opus.CacheWrite1h)
 	}
 	if opus.TotalCacheWrite() != 450 {
 		t.Errorf("expected total_cache_write=450, got %d", opus.TotalCacheWrite())
@@ -468,11 +469,12 @@ func TestCacheTokenFallback_FlatField(t *testing.T) {
 		t.Fatal(err)
 	}
 	opus := data.ModelUsage["claude-opus-4-6"]
-	if opus.CacheWrite5m != 500 {
-		t.Errorf("expected flat cache_creation to become cache_write_5m=500, got %d", opus.CacheWrite5m)
+	// Flat fallback → 5m → promoted to 1h (default)
+	if opus.CacheWrite5m != 0 {
+		t.Errorf("expected cache_write_5m=0 (promoted to 1h), got %d", opus.CacheWrite5m)
 	}
-	if opus.CacheWrite1h != 0 {
-		t.Errorf("expected cache_write_1h=0, got %d", opus.CacheWrite1h)
+	if opus.CacheWrite1h != 500 {
+		t.Errorf("expected cache_write_1h=500, got %d", opus.CacheWrite1h)
 	}
 }
 

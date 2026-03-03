@@ -96,7 +96,11 @@ func doUpdateCheck(current string) *updateResult {
 }
 
 func normalizeVersion(v string) string {
-	return strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(v, "v")
+	if idx := strings.Index(v, "+"); idx >= 0 {
+		v = v[:idx]
+	}
+	return v
 }
 
 func parseSemver(v string) (major, minor, patch int, ok bool) {

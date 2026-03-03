@@ -95,7 +95,7 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **Flat package structure** — all code in `package main`, one concern per file (parser, pricing, format)
 - **Dedup by requestId** — streaming duplicates are collapsed by keeping the last entry per `requestId` in a map
 - **Pricing via prefix matching** — exact model ID lookup first, then longest-prefix match from `familyPrefixes`, then fallback to `defaultPricing`
-- **Cache write tiers** — always distinguish 5-minute (`1.25x input`) and 1-hour (`2.0x input`) cache write costs separately
+- **Cache write pricing defaults to 1h** — Claude Code JSONL logs report all cache writes as `ephemeral_5m`, but Anthropic billing matches 1-hour tier pricing (2x input). The `cacheWriteAs1h` flag (default true) promotes all 5m tokens to 1h in `CacheWriteTokens()`. Override with `-cache-5m` CLI flag. Bucket fields `CacheWrite5m`/`CacheWrite1h` still track tiers separately for when the JSONL data is eventually fixed
 - **Table-driven tests** — all tests use `[]struct{ name; input; expected }` pattern with `t.Run` subtests
 - **Shared file parsing** — `parseFile()` in parser.go is used by both `parseLogs` (directory walk) and `parseSession` (statusline single-session)
 - **Local timezone everywhere** — cutoff uses local midnight (`time.Date` with `now.Location()`), date bucketing uses `parsed.Local().Format("2006-01-02")`. Never use `UTC()` for user-facing date logic.

@@ -87,45 +87,113 @@ func shortProject(slug string) string {
 
 type OutputOptions struct {
 	ShowDaily    bool
+	ShowMonthly  bool
 	ShowProjects bool
 	ShowBranches bool
 	TopN         int
 }
 
+type jsonModelRow struct {
+	Model        string  `json:"model"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CacheRead    int     `json:"cache_read_tokens"`
+	CacheWrite   int     `json:"cache_write_tokens"`
+	CacheWrite5m int     `json:"cache_write_5m_tokens"`
+	CacheWrite1h int     `json:"cache_write_1h_tokens"`
+	Requests     int     `json:"requests"`
+	Cost         float64 `json:"cost"`
+}
+
+type jsonDailyRow struct {
+	Date     string  `json:"date"`
+	Model    string  `json:"model"`
+	Requests int     `json:"requests"`
+	Cost     float64 `json:"cost"`
+}
+
+type jsonMonthlyRow struct {
+	Month    string  `json:"month"`
+	Model    string  `json:"model"`
+	Requests int     `json:"requests"`
+	Cost     float64 `json:"cost"`
+}
+
+type jsonProjectRow struct {
+	Project  string  `json:"project"`
+	Model    string  `json:"model"`
+	Requests int     `json:"requests"`
+	Cost     float64 `json:"cost"`
+}
+
+type jsonBranchRow struct {
+	Branch   string  `json:"branch"`
+	Model    string  `json:"model"`
+	Requests int     `json:"requests"`
+	Cost     float64 `json:"cost"`
+}
+
+func buildJSONDaily(data *ParseResult) []jsonDailyRow {
+	var daily []jsonDailyRow
+	for date, dayModels := range data.DailyUsage {
+		for model, b := range dayModels {
+			daily = append(daily, jsonDailyRow{Date: date, Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+		}
+	}
+	sort.Slice(daily, func(i, j int) bool {
+		if daily[i].Date != daily[j].Date {
+			return daily[i].Date > daily[j].Date
+		}
+		return daily[i].Cost > daily[j].Cost
+	})
+	return daily
+}
+
+func buildJSONMonthly(data *ParseResult) []jsonMonthlyRow {
+	monthlyData := aggregateMonthly(data.DailyUsage)
+	var monthly []jsonMonthlyRow
+	for month, monthModels := range monthlyData {
+		for model, b := range monthModels {
+			monthly = append(monthly, jsonMonthlyRow{Month: month, Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+		}
+	}
+	sort.Slice(monthly, func(i, j int) bool {
+		if monthly[i].Month != monthly[j].Month {
+			return monthly[i].Month > monthly[j].Month
+		}
+		return monthly[i].Cost > monthly[j].Cost
+	})
+	return monthly
+}
+
+func buildJSONProjects(data *ParseResult) []jsonProjectRow {
+	var projects []jsonProjectRow
+	for slug, projModels := range data.ProjectUsage {
+		for model, b := range projModels {
+			projects = append(projects, jsonProjectRow{Project: shortProject(slug), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+		}
+	}
+	sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
+	return projects
+}
+
+func buildJSONBranches(data *ParseResult) []jsonBranchRow {
+	var branches []jsonBranchRow
+	for _, branchMap := range data.BranchUsage {
+		for branch, models := range branchMap {
+			for model, b := range models {
+				branches = append(branches, jsonBranchRow{
+					Branch: branch,
+					Model:  shortModel(model), Requests: b.Requests, Cost: b.Cost,
+				})
+			}
+		}
+	}
+	sort.Slice(branches, func(i, j int) bool { return branches[i].Cost > branches[j].Cost })
+	return branches
+}
+
 func printJSON(data *ParseResult, opts OutputOptions) {
-	type jsonModelRow struct {
-		Model        string  `json:"model"`
-		InputTokens  int     `json:"input_tokens"`
-		OutputTokens int     `json:"output_tokens"`
-		CacheRead    int     `json:"cache_read_tokens"`
-		CacheWrite   int     `json:"cache_write_tokens"`
-		CacheWrite5m int     `json:"cache_write_5m_tokens"`
-		CacheWrite1h int     `json:"cache_write_1h_tokens"`
-		Requests     int     `json:"requests"`
-		Cost         float64 `json:"cost"`
-	}
-
-	type jsonDailyRow struct {
-		Date     string  `json:"date"`
-		Model    string  `json:"model"`
-		Requests int     `json:"requests"`
-		Cost     float64 `json:"cost"`
-	}
-
-	type jsonProjectRow struct {
-		Project  string  `json:"project"`
-		Model    string  `json:"model"`
-		Requests int     `json:"requests"`
-		Cost     float64 `json:"cost"`
-	}
-
-	type jsonBranchRow struct {
-		Branch   string  `json:"branch"`
-		Model    string  `json:"model"`
-		Requests int     `json:"requests"`
-		Cost     float64 `json:"cost"`
-	}
-
 	totals := data.Totals()
 	dateFrom, dateTo := data.DateRange()
 	var models []jsonModelRow
@@ -143,6 +211,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Summary  interface{} `json:"summary"`
 		Models   interface{} `json:"models"`
 		Daily    interface{} `json:"daily,omitempty"`
+		Monthly  interface{} `json:"monthly,omitempty"`
 		Projects interface{} `json:"projects,omitempty"`
 		Branches interface{} `json:"branches,omitempty"`
 	}{
@@ -155,55 +224,27 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 			TotalCacheWrite   int     `json:"total_cache_write_tokens"`
 			TotalCacheWrite5m int     `json:"total_cache_write_5m_tokens"`
 			TotalCacheWrite1h int     `json:"total_cache_write_1h_tokens"`
+			WebSearches       int     `json:"web_searches,omitempty"`
+			LongCtxRequests   int     `json:"long_context_requests,omitempty"`
 			DateFrom          string  `json:"date_from,omitempty"`
 			DateTo            string  `json:"date_to,omitempty"`
 			FilesParsed       int     `json:"files_parsed"`
 			DurationMs        int64   `json:"duration_ms"`
-		}{totals.Cost, data.TotalRecords, totals.Input, totals.Output, totals.CacheR, totals.CacheW, totals.CacheW5m, totals.CacheW1h, dateFrom, dateTo, data.TotalFiles, data.Duration.Milliseconds()},
+		}{totals.Cost, data.TotalRecords, totals.Input, totals.Output, totals.CacheR, totals.CacheW, totals.CacheW5m, totals.CacheW1h, totals.WebSearches, totals.LongCtxRequests, dateFrom, dateTo, data.TotalFiles, data.Duration.Milliseconds()},
 		Models: models,
 	}
 
 	if opts.ShowDaily {
-		var daily []jsonDailyRow
-		for date, dayModels := range data.DailyUsage {
-			for model, b := range dayModels {
-				daily = append(daily, jsonDailyRow{Date: date, Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
-			}
-		}
-		sort.Slice(daily, func(i, j int) bool {
-			if daily[i].Date != daily[j].Date {
-				return daily[i].Date > daily[j].Date
-			}
-			return daily[i].Cost > daily[j].Cost
-		})
-		out.Daily = daily
+		out.Daily = buildJSONDaily(data)
 	}
-
+	if opts.ShowMonthly {
+		out.Monthly = buildJSONMonthly(data)
+	}
 	if opts.ShowProjects {
-		var projects []jsonProjectRow
-		for slug, projModels := range data.ProjectUsage {
-			for model, b := range projModels {
-				projects = append(projects, jsonProjectRow{Project: shortProject(slug), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
-			}
-		}
-		sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
-		out.Projects = projects
+		out.Projects = buildJSONProjects(data)
 	}
-
 	if opts.ShowBranches {
-		var branches []jsonBranchRow
-		for _, branchMap := range data.BranchUsage {
-			for branch, models := range branchMap {
-				for model, b := range models {
-					branches = append(branches, jsonBranchRow{
-						Branch: branch,
-						Model:  shortModel(model), Requests: b.Requests, Cost: b.Cost,
-					})
-				}
-			}
-		}
-		sort.Slice(branches, func(i, j int) bool { return branches[i].Cost > branches[j].Cost })
-		out.Branches = branches
+		out.Branches = buildJSONBranches(data)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -269,10 +310,22 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 		fmtTokens(totals.Input), fmtTokens(totals.Output),
 		fmtTokens(totals.CacheR), fmtTokens(totals.CacheW),
 		totals.Requests, colorCost(totals.Cost, 10))
+	if totals.WebSearches > 0 {
+		dim.Printf("  Web searches: %d ($%.2f)\n", totals.WebSearches, float64(totals.WebSearches)*webSearchCostPerSearch)
+	}
+	if totals.LongCtxRequests > 0 {
+		dim.Printf("  Long-context requests (>200K): %d (premium pricing applied)\n", totals.LongCtxRequests)
+	}
+	if cacheWriteAs1h {
+		dim.Println("  Cache writes priced at 1h tier (2x input); use -cache-5m for 1.25x")
+	}
 	fmt.Println()
 
 	if opts.ShowDaily {
 		printDailyBreakdown(data, opts)
+	}
+	if opts.ShowMonthly {
+		printMonthlyBreakdown(data, opts)
 	}
 	if opts.ShowProjects {
 		printProjectBreakdown(data, opts)
@@ -328,6 +381,79 @@ func printDailyBreakdown(data *ParseResult, opts OutputOptions) {
 		}
 		fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
 			"", "", "", "", dayReqs, colorCost(dayCost, 10))
+		fmt.Println()
+	}
+}
+
+func aggregateMonthly(dailyUsage map[string]map[string]*Bucket) map[string]map[string]*Bucket {
+	monthly := make(map[string]map[string]*Bucket)
+	for date, dayModels := range dailyUsage {
+		month := date
+		if len(date) >= 7 {
+			month = date[:7]
+		}
+		for model, b := range dayModels {
+			mb := getOrCreateNestedBucket(monthly, month, model)
+			mb.InputTokens += b.InputTokens
+			mb.OutputTokens += b.OutputTokens
+			mb.CacheRead += b.CacheRead
+			mb.CacheWrite5m += b.CacheWrite5m
+			mb.CacheWrite1h += b.CacheWrite1h
+			mb.Cost += b.Cost
+			mb.Requests += b.Requests
+		}
+	}
+	return monthly
+}
+
+func printMonthlyBreakdown(data *ParseResult, opts OutputOptions) {
+
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println("  MONTHLY BREAKDOWN")
+	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("  %-12s %-16s %9s %9s %7s %10s\n",
+		"Month", "Model", "Input", "Output", "Reqs", "Cost")
+	fmt.Println("  " + strings.Repeat("─", 75))
+
+	monthly := aggregateMonthly(data.DailyUsage)
+
+	var months []string
+	for m := range monthly {
+		months = append(months, m)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(months)))
+	if opts.TopN > 0 && len(months) > opts.TopN {
+		months = months[:opts.TopN]
+	}
+
+	for _, month := range months {
+		monthModels := monthly[month]
+		var monthCost float64
+		var monthReqs int
+
+		var sorted []modelEntry
+		for name, b := range monthModels {
+			sorted = append(sorted, modelEntry{name, b})
+			monthCost += b.Cost
+			monthReqs += b.Requests
+		}
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
+
+		first := true
+		for _, m := range sorted {
+			b := m.bucket
+			label := ""
+			if first {
+				label = month
+			}
+			fmt.Printf("  %-12s %s %9s %9s %7d %s\n",
+				label, cyan.Sprintf("%-16s", shortModel(m.name)),
+				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
+				b.Requests, colorCost(b.Cost, 10))
+			first = false
+		}
+		fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
+			"", "", "", "", monthReqs, colorCost(monthCost, 10))
 		fmt.Println()
 	}
 }

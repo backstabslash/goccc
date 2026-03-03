@@ -13,13 +13,15 @@ import (
 )
 
 type Bucket struct {
-	InputTokens  int
-	OutputTokens int
-	CacheRead    int
-	CacheWrite5m int
-	CacheWrite1h int
-	Cost         float64
-	Requests     int
+	InputTokens     int
+	OutputTokens    int
+	CacheRead       int
+	CacheWrite5m    int
+	CacheWrite1h    int
+	Cost            float64
+	Requests        int
+	WebSearches     int
+	LongCtxRequests int
 }
 
 func (b *Bucket) TotalCacheWrite() int { return b.CacheWrite5m + b.CacheWrite1h }
@@ -239,7 +241,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 	}
 
 	for _, r := range w.deduped {
-		cost := calcCost(r.Model, r.Usage)
+		cr := calcCostResult(r.Model, r.Usage)
 		cache5m, cache1h := r.Usage.CacheWriteTokens()
 
 		buckets := []*Bucket{
@@ -249,14 +251,21 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 			getOrCreate3LevelBucket(result.BranchUsage, r.Project, r.Branch, r.Model),
 		}
 
+		longCtxInc := 0
+		if cr.LongCtx {
+			longCtxInc = 1
+		}
+
 		for _, b := range buckets {
 			b.InputTokens += r.Usage.InputTokens
 			b.OutputTokens += r.Usage.OutputTokens
 			b.CacheRead += r.Usage.CacheReadInputTokens
 			b.CacheWrite5m += cache5m
 			b.CacheWrite1h += cache1h
-			b.Cost += cost
+			b.Cost += cr.Cost
 			b.Requests++
+			b.WebSearches += cr.WebSearches
+			b.LongCtxRequests += longCtxInc
 		}
 	}
 
@@ -319,14 +328,16 @@ func getOrCreate3LevelBucket(m map[string]map[string]map[string]*Bucket, k1, k2,
 }
 
 type UsageTotals struct {
-	Cost     float64
-	Input    int
-	Output   int
-	CacheR   int
-	CacheW   int
-	CacheW5m int
-	CacheW1h int
-	Requests int
+	Cost            float64
+	Input           int
+	Output          int
+	CacheR          int
+	CacheW          int
+	CacheW5m        int
+	CacheW1h        int
+	Requests        int
+	WebSearches     int
+	LongCtxRequests int
 }
 
 func (r *ParseResult) DateRange() (from, to string) {
@@ -354,6 +365,8 @@ func (r *ParseResult) Totals() UsageTotals {
 		t.CacheW5m += b.CacheWrite5m
 		t.CacheW1h += b.CacheWrite1h
 		t.Requests += b.Requests
+		t.WebSearches += b.WebSearches
+		t.LongCtxRequests += b.LongCtxRequests
 	}
 	t.CacheW = t.CacheW5m + t.CacheW1h
 	return t

@@ -40,6 +40,7 @@ func main() {
 	days := flag.Int("days", 0, "Only show usage from the last N days (0 = all time)")
 	project := flag.String("project", "", "Filter by project name (substring match)")
 	daily := flag.Bool("daily", false, "Show daily breakdown")
+	monthly := flag.Bool("monthly", false, "Show monthly breakdown")
 	projects := flag.Bool("projects", false, "Show per-project breakdown")
 	all := flag.Bool("all", false, "Show all breakdowns (daily + projects)")
 	topN := flag.Int("top", 0, "Max entries in breakdowns (0 = all)")
@@ -54,9 +55,11 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version")
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
+	cache5m := flag.Bool("cache-5m", false, "Price cache writes at 5-minute tier (1.25x) instead of 1-hour (2x)")
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
+	flag.BoolVar(monthly, "m", false, "Short for -monthly")
 	flag.IntVar(topN, "n", 0, "Short for -top")
 	flag.BoolVar(showVersion, "V", false, "Short for -version")
 
@@ -69,6 +72,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  goccc                          All-time summary\n")
 		fmt.Fprintf(os.Stderr, "  goccc -days 7 -all             Last 7 days, all breakdowns\n")
 		fmt.Fprintf(os.Stderr, "  goccc -days 1                  Today's usage\n")
+		fmt.Fprintf(os.Stderr, "  goccc -monthly                 Monthly cost summary\n")
 		fmt.Fprintf(os.Stderr, "  goccc -project webapp -daily   Filter by project with daily breakdown\n")
 		fmt.Fprintf(os.Stderr, "  goccc -json | jq '.summary'    JSON output for scripting\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
@@ -86,12 +90,21 @@ func main() {
 		noColorFlag = true
 	}
 
+	if *cache5m {
+		cacheWriteAs1h = false
+	}
+
 	if *statusline {
 		runStatusline(*baseDir, *noMCP)
 		return
 	}
 
 	updateCh := checkForUpdate(version)
+
+	if *daily && *monthly {
+		fmt.Fprintf(os.Stderr, "Error: -daily and -monthly are mutually exclusive\n")
+		os.Exit(1)
+	}
 
 	if *all {
 		*daily = true
@@ -113,6 +126,7 @@ func main() {
 
 	opts := OutputOptions{
 		ShowDaily:    *daily,
+		ShowMonthly:  *monthly,
 		ShowProjects: *projects,
 		ShowBranches: *project != "",
 		TopN:         *topN,
