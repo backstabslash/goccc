@@ -6,7 +6,7 @@
 
 A fast, zero-dependency CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview) — single binary, no runtime needed.
 
-Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, and project — with accurate per-model pricing including separate cache write tiers.
+Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, project, and month — with accurate per-model pricing including cache write tiers, long-context premiums, and web search costs.
 
 ![goccc output](https://github.com/user-attachments/assets/2f1127b9-1c53-4949-b111-2e5ef7186a7d)
 
@@ -51,10 +51,12 @@ go build -o goccc.exe . # Windows
 goccc                              # Summary of all-time usage
 goccc -days 7 -all                 # Last 7 days with daily and project breakdowns
 goccc -daily                       # Daily breakdown only
+goccc -monthly                     # Monthly breakdown
 goccc -projects                    # Project breakdown only
 goccc -project webapp -daily       # Filter by project name (substring match)
 goccc -days 1                      # Today's usage
 goccc -projects -top 5             # Top 5 most expensive projects
+goccc -cache-5m                    # Use 5-minute cache pricing instead of 1-hour
 goccc -days 30 -all -json          # JSON output for scripting
 goccc -json | jq '.summary.total_cost'  # Pipe to jq for custom analysis
 ```
@@ -110,9 +112,11 @@ To hide the MCP indicator, add `-no-mcp`.
 | `-days` | `-d` | `0` | Only show the last N calendar days (0 = all time) |
 | `-project` | `-p` | | Filter by project name (substring, case-insensitive) |
 | `-daily` | | `false` | Show daily breakdown |
+| `-monthly` | `-m` | `false` | Show monthly breakdown (mutually exclusive with `-daily`) |
 | `-projects` | | `false` | Show per-project breakdown |
 | `-all` | | `false` | Show all breakdowns (daily + projects) |
 | `-top` | `-n` | `0` | Max entries in breakdowns (0 = all) |
+| `-cache-5m` | | `false` | Price cache writes at 5-minute tier (1.25x input) instead of 1-hour (2x) |
 | `-json` | | `false` | Output as JSON |
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
@@ -129,8 +133,12 @@ goccc:
 1. Walks `.jsonl` files under the projects directory, skipping non-matching project directories and files older than the date range (by mtime)
 2. Pre-filters lines with a byte scan before JSON parsing — only `"type":"assistant"` entries carry billing data (tolerates both compact and spaced JSON formatting)
 3. Deduplicates streaming entries by `requestId` (last entry wins)
-4. Calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing), including separate rates for 5-minute and 1-hour cache writes
-5. Aggregates by model, date (local timezone), and project
+4. Calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing), including cache write tiers, long-context premiums (>200K input tokens), and web search costs
+5. Aggregates by model, date (local timezone), project, and month
+
+### Cache Write Pricing
+
+Claude Code JSONL logs report all cache writes as `ephemeral_5m`, but Anthropic billing matches 1-hour tier pricing (2x input price). goccc defaults to 1-hour pricing to align with actual bills. Use `-cache-5m` to switch to 5-minute pricing (1.25x input) if your billing differs.
 
 ## Preserving Log History
 
