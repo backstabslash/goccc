@@ -89,7 +89,10 @@ func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []s
 
 	modelStr := shortModel(input.Model.ID)
 
-	parts := []string{"💸 " + colorCost(sCost, 0) + " session"}
+	var parts []string
+	if sCost > 0 {
+		parts = append(parts, "💸 "+colorCost(sCost, 0)+" session")
+	}
 	if tCost > 0 {
 		parts = append(parts, "💰 "+colorCost(tCost, 0)+" today")
 	}

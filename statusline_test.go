@@ -199,6 +199,14 @@ func TestFormatStatusline(t *testing.T) {
 			wantSub:  []string{"💸 $3.00 session"},
 			dontWant: []string{"today"},
 		},
+		{
+			name:     "session zero omits session",
+			sCost:    0,
+			tCost:    0,
+			modelID:  "claude-sonnet-4-6",
+			ctxPct:   5.0,
+			dontWant: []string{"session"},
+		},
 	}
 
 	for _, tt := range tests {
