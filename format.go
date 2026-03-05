@@ -35,10 +35,16 @@ func fmtDuration(d time.Duration) string {
 }
 
 func fmtCost(c float64) string {
-	if c >= 1.0 {
-		return fmt.Sprintf("$%.2f", c)
+	sym := "$"
+	v := c
+	if activeCurrency.Rate > 0 {
+		sym = activeCurrency.Symbol
+		v = c * activeCurrency.Rate
 	}
-	return fmt.Sprintf("$%.4f", c)
+	if v >= 1.0 {
+		return fmt.Sprintf("%s%.2f", sym, v)
+	}
+	return fmt.Sprintf("%s%.4f", sym, v)
 }
 
 func colorize(s string, cost float64) string {
@@ -208,6 +214,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 	sort.Slice(models, func(i, j int) bool { return models[i].Cost > models[j].Cost })
 
 	out := struct {
+		Currency interface{} `json:"currency,omitempty"`
 		Summary  interface{} `json:"summary"`
 		Models   interface{} `json:"models"`
 		Daily    interface{} `json:"daily,omitempty"`
@@ -232,6 +239,14 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 			DurationMs        int64   `json:"duration_ms"`
 		}{totals.Cost, data.TotalRecords, totals.Input, totals.Output, totals.CacheR, totals.CacheW, totals.CacheW5m, totals.CacheW1h, totals.WebSearches, totals.LongCtxRequests, dateFrom, dateTo, data.TotalFiles, data.Duration.Milliseconds()},
 		Models: models,
+	}
+
+	if activeCurrency.Rate > 0 {
+		out.Currency = struct {
+			Code   string  `json:"code"`
+			Symbol string  `json:"symbol"`
+			Rate   float64 `json:"rate"`
+		}{activeCurrency.Code, activeCurrency.Symbol, activeCurrency.Rate}
 	}
 
 	if opts.ShowDaily {
@@ -311,13 +326,16 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 		fmtTokens(totals.CacheR), fmtTokens(totals.CacheW),
 		totals.Requests, colorCost(totals.Cost, 10))
 	if totals.WebSearches > 0 {
-		dim.Printf("  Web searches: %d ($%.2f)\n", totals.WebSearches, float64(totals.WebSearches)*webSearchCostPerSearch)
+		dim.Printf("  Web searches: %d (%s)\n", totals.WebSearches, fmtCost(float64(totals.WebSearches)*webSearchCostPerSearch))
 	}
 	if totals.LongCtxRequests > 0 {
 		dim.Printf("  Long-context requests (>200K): %d (premium pricing applied)\n", totals.LongCtxRequests)
 	}
 	if cacheWriteAs1h {
 		dim.Println("  Cache writes priced at 1h tier (2x input); use -cache-5m for 1.25x")
+	}
+	if activeCurrency.Rate > 0 {
+		dim.Printf("  Costs in %s (1 USD = %.4f %s)\n", activeCurrency.Code, activeCurrency.Rate, activeCurrency.Code)
 	}
 	fmt.Println()
 
