@@ -15,6 +15,7 @@ Go 1.26, stdlib + fatih/color, GoReleaser for cross-platform builds
 ├── pricing.go         # Per-model pricing table, cost calculation, model name resolution
 ├── format.go          # Terminal and JSON output formatting
 ├── statusline.go      # Claude Code statusline mode (reads stdin JSON, outputs formatted cost line)
+├── currency.go        # Currency config (~/.goccc.json), exchange rate fetching/caching, symbol table
 ├── mcp.go             # MCP server detection, per-project disable filtering, plugin walk
 ├── *_test.go          # Table-driven tests for each module
 ├── fixture_test.go    # Integration test against realistic JSONL fixture
@@ -114,6 +115,10 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **MCP project resolution from slug** — when transcript has no `cwd` yet (fresh session), the project path is derived by matching the transcript directory slug against `~/.claude.json` project keys (slug = path with `/` replaced by `-`)
 - **Single-read config files** — `settings.json` and `~/.claude.json` are each read once and their parsed data shared across detection and filtering
 - **Plugin walk is layout-agnostic** — `parseEnabledPluginMCPs` walks the plugins dir for `.mcp.json` files and matches ancestor directory names to enabled plugin names, supporting any directory structure
+- **Local currency via config file** — `~/.goccc.json` stores `currency` (ISO 4217 code), `cached_rate`, and `rate_updated`; exchange rates auto-fetched from open.er-api.com and cached for 24h
+- **Currency-aware fmtCost** — `fmtCost()` checks `activeCurrency.Rate`; when > 0, multiplies USD cost by rate and uses the resolved symbol. Color thresholds stay in USD
+- **CLI currency overrides** — `-currency-symbol` and `-currency-rate` flags override config; both required together
+- **JSON output backward-compatible** — cost fields always in USD; `currency` metadata object added only when a non-USD currency is active
 
 ## Don't
 

@@ -56,6 +56,8 @@ func main() {
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
 	cache5m := flag.Bool("cache-5m", false, "Price cache writes at 5-minute tier (1.25x) instead of 1-hour (2x)")
+	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
+	currencyRateFlag := flag.Float64("currency-rate", 0, "Override exchange rate from USD (requires -currency-symbol)")
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
@@ -92,6 +94,11 @@ func main() {
 
 	if *cache5m {
 		cacheWriteAs1h = false
+	}
+
+	if err := initCurrency(*currencySymbolFlag, *currencyRateFlag); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 
 	if *statusline {

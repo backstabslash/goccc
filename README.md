@@ -59,7 +59,28 @@ goccc -projects -top 5             # Top 5 most expensive projects
 goccc -cache-5m                    # Use 5-minute cache pricing instead of 1-hour
 goccc -days 30 -all -json          # JSON output for scripting
 goccc -json | jq '.summary.total_cost'  # Pipe to jq for custom analysis
+goccc -currency-symbol "€" -currency-rate 0.92  # One-off currency override
 ```
+
+### Local Currency
+
+To display costs in your local currency, create `~/.goccc.json`:
+
+```json
+{
+  "currency": "ZAR"
+}
+```
+
+goccc will auto-fetch the exchange rate from USD and cache it for 24 hours. If the API is unreachable, the last cached rate is used. Set `currency` to any [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217) code (e.g., `EUR`, `GBP`, `ZAR`, `JPY`).
+
+For one-off overrides without a config file, use both flags together:
+
+```bash
+goccc -currency-symbol "€" -currency-rate 0.92
+```
+
+JSON output always reports costs in USD for backward compatibility, with a `currency` metadata object when a non-USD currency is active.
 
 ## Claude Code Statusline
 
@@ -122,6 +143,8 @@ To hide the MCP indicator, add `-no-mcp`.
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
 | `-no-mcp` | | `false` | Hide MCP servers from statusline output |
+| `-currency-symbol` | | | Override currency symbol (requires `-currency-rate`) |
+| `-currency-rate` | | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
 | `-version` | `-V` | | Print version and exit |
 
 ## How It Works
