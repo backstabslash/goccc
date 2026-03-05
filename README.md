@@ -8,7 +8,7 @@ A fast, zero-dependency CLI cost calculator and [statusline provider](#claude-co
 
 Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, project, and month — with accurate per-model pricing including cache write tiers, long-context premiums, and web search costs.
 
-![goccc output](https://github.com/user-attachments/assets/2f1127b9-1c53-4949-b111-2e5ef7186a7d)
+![goccc output](https://github.com/user-attachments/assets/e711b832-b5c2-44c3-a627-428dba350cf6)
 
 ## Table of Contents
 
