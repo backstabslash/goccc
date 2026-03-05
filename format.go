@@ -241,7 +241,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 		Models: models,
 	}
 
-	if activeCurrency.Rate > 0 {
+	if activeCurrency.Rate > 0 && activeCurrency.Code != "" {
 		out.Currency = struct {
 			Code   string  `json:"code"`
 			Symbol string  `json:"symbol"`
@@ -335,7 +335,11 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 		dim.Println("  Cache writes priced at 1h tier (2x input); use -cache-5m for 1.25x")
 	}
 	if activeCurrency.Rate > 0 {
-		dim.Printf("  Costs in %s (1 USD = %.4f %s)\n", activeCurrency.Code, activeCurrency.Rate, activeCurrency.Code)
+		if activeCurrency.Code != "" {
+			dim.Printf("  Costs in %s (1 USD = %.4f %s)\n", activeCurrency.Code, activeCurrency.Rate, activeCurrency.Code)
+		} else {
+			dim.Printf("  Costs converted at 1 USD = %.4f %s\n", activeCurrency.Rate, activeCurrency.Symbol)
+		}
 	}
 	fmt.Println()
 

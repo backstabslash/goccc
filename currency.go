@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -85,7 +86,9 @@ func saveCurrencyConfig(path string, cfg CurrencyConfig) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, append(data, '\n'), 0644)
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "goccc: warning: failed to save currency config: %v\n", err)
+	}
 }
 
 type erAPIResponse struct {
@@ -93,8 +96,10 @@ type erAPIResponse struct {
 	Rates  map[string]float64 `json:"rates"`
 }
 
+var httpClient = &http.Client{Timeout: 2 * time.Second}
+
 func fetchExchangeRate(currency string) (float64, error) {
-	resp, err := http.Get("https://open.er-api.com/v6/latest/USD")
+	resp, err := httpClient.Get("https://open.er-api.com/v6/latest/USD")
 	if err != nil {
 		return 0, fmt.Errorf("fetching exchange rate: %w", err)
 	}
@@ -117,16 +122,17 @@ func fetchExchangeRate(currency string) (float64, error) {
 }
 
 // initCurrency resolves currency from CLI flags or config file and sets activeCurrency.
-// Returns an error message if flags are invalid, or "" on success.
-func initCurrency(symbolFlag string, rateFlag float64) string {
+func initCurrency(symbolFlag string, rateFlag float64) error {
 	if (symbolFlag != "") != (rateFlag != 0) {
-		return "Error: -currency-symbol and -currency-rate must be used together"
+		return fmt.Errorf("-currency-symbol and -currency-rate must be used together")
 	}
 	if symbolFlag != "" && rateFlag != 0 {
-		activeCurrency.Code = symbolFlag
+		if math.IsNaN(rateFlag) || math.IsInf(rateFlag, 0) || rateFlag <= 0 {
+			return fmt.Errorf("-currency-rate must be a positive number")
+		}
 		activeCurrency.Symbol = symbolFlag
 		activeCurrency.Rate = rateFlag
-		return ""
+		return nil
 	}
 	cfgPath := configPath()
 	cfg := loadCurrencyConfig(cfgPath)
@@ -136,7 +142,7 @@ func initCurrency(symbolFlag string, rateFlag float64) string {
 		activeCurrency.Symbol = sym
 		activeCurrency.Rate = rate
 	}
-	return ""
+	return nil
 }
 
 const rateStaleDuration = 24 * time.Hour

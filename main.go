@@ -96,8 +96,8 @@ func main() {
 		cacheWriteAs1h = false
 	}
 
-	if errMsg := initCurrency(*currencySymbolFlag, *currencyRateFlag); errMsg != "" {
-		fmt.Fprintf(os.Stderr, "%s\n", errMsg)
+	if err := initCurrency(*currencySymbolFlag, *currencyRateFlag); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
