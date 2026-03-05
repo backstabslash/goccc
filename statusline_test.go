@@ -172,7 +172,7 @@ func TestFormatStatusline(t *testing.T) {
 			tCost:   2.00,
 			modelID: "claude-opus-4-6",
 			ctxPct:  45.0,
-			wantSub: []string{"💸 $0.5000 session", "💰 $2.00 today", "💭 45% ctx", "🤖 Opus 4.6"},
+			wantSub: []string{"💸 $0.50 session", "💰 $2.00 today", "💭 45% ctx", "🤖 Opus 4.6"},
 		},
 		{
 			name:    "today same as session still shows today",

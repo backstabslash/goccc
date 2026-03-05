@@ -117,6 +117,7 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **Plugin walk is layout-agnostic** — `parseEnabledPluginMCPs` walks the plugins dir for `.mcp.json` files and matches ancestor directory names to enabled plugin names, supporting any directory structure
 - **Local currency via config file** — `~/.goccc.json` stores `currency` (ISO 4217 code), `cached_rate`, and `rate_updated`; exchange rates auto-fetched from open.er-api.com and cached for 24h
 - **Currency-aware fmtCost** — `fmtCost()` checks `activeCurrency.Rate`; when > 0, multiplies USD cost by rate and uses the resolved symbol. Color thresholds stay in USD
+- **Currency symbol placement** — `currencySymbols` maps ISO codes to `currencyInfo{Symbol, Suffix}`. Prefix currencies render as `$10.00`, suffix currencies as `10.00 lei`. Unknown currencies default to suffix with the ISO code (e.g. `10.00 XYZ`)
 - **CLI currency overrides** — `-currency-symbol` and `-currency-rate` flags override config; both required together
 - **JSON output backward-compatible** — cost fields always in USD; `currency` metadata object added only when a non-USD currency is active
 

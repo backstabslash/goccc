@@ -37,14 +37,17 @@ func fmtDuration(d time.Duration) string {
 func fmtCost(c float64) string {
 	sym := "$"
 	v := c
+	suffix := false
 	if activeCurrency.Rate > 0 {
 		sym = activeCurrency.Symbol
 		v = c * activeCurrency.Rate
+		suffix = activeCurrency.Suffix
 	}
-	if v >= 1.0 {
-		return fmt.Sprintf("%s%.2f", sym, v)
+	num := fmt.Sprintf("%.2f", v)
+	if suffix {
+		return num + " " + sym
 	}
-	return fmt.Sprintf("%s%.4f", sym, v)
+	return sym + num
 }
 
 func colorize(s string, cost float64) string {
@@ -59,7 +62,14 @@ func colorize(s string, cost float64) string {
 }
 
 func colorCost(c float64, width int) string {
-	return colorize(fmt.Sprintf("%*s", width, fmtCost(c)), c)
+	s := fmtCost(c)
+	if width == 0 {
+		return colorize(s, c)
+	}
+	if len(s) > width {
+		width = len(s)
+	}
+	return colorize(fmt.Sprintf("%*s", width, s), c)
 }
 
 func shortProject(slug string) string {
@@ -214,13 +224,13 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 	sort.Slice(models, func(i, j int) bool { return models[i].Cost > models[j].Cost })
 
 	out := struct {
-		Currency interface{} `json:"currency,omitempty"`
 		Summary  interface{} `json:"summary"`
 		Models   interface{} `json:"models"`
 		Daily    interface{} `json:"daily,omitempty"`
 		Monthly  interface{} `json:"monthly,omitempty"`
 		Projects interface{} `json:"projects,omitempty"`
 		Branches interface{} `json:"branches,omitempty"`
+		Currency interface{} `json:"currency,omitempty"`
 	}{
 		Summary: struct {
 			TotalCost         float64 `json:"total_cost"`
@@ -292,6 +302,16 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	if data.ParseErrors > 0 {
 		dim.Printf("  (%d parse errors skipped)\n", data.ParseErrors)
 	}
+	if cacheWriteAs1h {
+		dim.Println("  Cache writes priced at 1h tier (2x input); use -cache-5m for 1.25x")
+	}
+	if activeCurrency.Rate > 0 {
+		if activeCurrency.Code != "" {
+			dim.Printf("  Costs in %s (1 USD = %.4f %s)\n", activeCurrency.Code, activeCurrency.Rate, activeCurrency.Code)
+		} else {
+			dim.Printf("  Costs converted at 1 USD = %.4f %s\n", activeCurrency.Rate, activeCurrency.Symbol)
+		}
+	}
 	fmt.Println()
 
 	// Model breakdown
@@ -330,16 +350,6 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	}
 	if totals.LongCtxRequests > 0 {
 		dim.Printf("  Long-context requests (>200K): %d (premium pricing applied)\n", totals.LongCtxRequests)
-	}
-	if cacheWriteAs1h {
-		dim.Println("  Cache writes priced at 1h tier (2x input); use -cache-5m for 1.25x")
-	}
-	if activeCurrency.Rate > 0 {
-		if activeCurrency.Code != "" {
-			dim.Printf("  Costs in %s (1 USD = %.4f %s)\n", activeCurrency.Code, activeCurrency.Rate, activeCurrency.Code)
-		} else {
-			dim.Printf("  Costs converted at 1 USD = %.4f %s\n", activeCurrency.Rate, activeCurrency.Symbol)
-		}
 	}
 	fmt.Println()
 

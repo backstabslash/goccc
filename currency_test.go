@@ -53,60 +53,73 @@ func TestLoadCurrencyConfigEmptyPath(t *testing.T) {
 
 func TestSymbolForCurrency(t *testing.T) {
 	tests := []struct {
-		code string
-		want string
+		code       string
+		wantSymbol string
+		wantSuffix bool
 	}{
-		{"USD", "$"},
-		{"EUR", "€"},
-		{"GBP", "£"},
-		{"ZAR", "R"},
-		{"BRL", "R$"},
-		{"UNKNOWN", "UNKNOWN"},
+		{"USD", "$", false},
+		{"EUR", "€", false},
+		{"GBP", "£", false},
+		{"ZAR", "R", false},
+		{"BRL", "R$", false},
+		{"RON", "lei", true},
+		{"SEK", "kr", true},
+		{"UNKNOWN", "UNKNOWN", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
-			got := symbolForCurrency(tt.code)
-			if got != tt.want {
-				t.Errorf("symbolForCurrency(%q) = %q, want %q", tt.code, got, tt.want)
+			sym, suffix := symbolForCurrency(tt.code)
+			if sym != tt.wantSymbol {
+				t.Errorf("symbolForCurrency(%q) symbol = %q, want %q", tt.code, sym, tt.wantSymbol)
+			}
+			if suffix != tt.wantSuffix {
+				t.Errorf("symbolForCurrency(%q) suffix = %v, want %v", tt.code, suffix, tt.wantSuffix)
 			}
 		})
 	}
 }
 
 func TestFmtCostWithCurrency(t *testing.T) {
-	// Save and restore activeCurrency
 	origCode := activeCurrency.Code
 	origSym := activeCurrency.Symbol
 	origRate := activeCurrency.Rate
+	origSuffix := activeCurrency.Suffix
 	defer func() {
 		activeCurrency.Code = origCode
 		activeCurrency.Symbol = origSym
 		activeCurrency.Rate = origRate
+		activeCurrency.Suffix = origSuffix
 	}()
 
 	tests := []struct {
 		name   string
 		symbol string
+		suffix bool
 		rate   float64
 		cost   float64
 		want   string
 	}{
-		{"USD default", "", 0, 1.50, "$1.50"},
-		{"USD small", "", 0, 0.005, "$0.0050"},
-		{"ZAR large", "R", 18.5, 1.00, "R18.50"},
-		{"ZAR small", "R", 18.5, 0.01, "R0.1850"},
-		{"EUR large", "€", 0.92, 10.0, "€9.20"},
+		{"USD default", "", false, 0, 1.50, "$1.50"},
+		{"USD small", "", false, 0, 0.005, "$0.01"},
+		{"ZAR large", "R", false, 18.5, 1.00, "R18.50"},
+		{"ZAR small", "R", false, 18.5, 0.01, "R0.18"},
+		{"EUR large", "€", false, 0.92, 10.0, "€9.20"},
+		{"RON large", "lei", true, 4.9, 10.0, "49.00 lei"},
+		{"RON small", "lei", true, 4.9, 0.01, "0.05 lei"},
+		{"SEK suffix", "kr", true, 10.5, 2.0, "21.00 kr"},
+		{"unknown suffix", "XYZ", true, 1.5, 1.0, "1.50 XYZ"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			activeCurrency.Symbol = tt.symbol
 			activeCurrency.Rate = tt.rate
+			activeCurrency.Suffix = tt.suffix
 			got := fmtCost(tt.cost)
 			if got != tt.want {
-				t.Errorf("fmtCost(%f) with rate=%f symbol=%q = %q, want %q",
-					tt.cost, tt.rate, tt.symbol, got, tt.want)
+				t.Errorf("fmtCost(%f) with rate=%f symbol=%q suffix=%v = %q, want %q",
+					tt.cost, tt.rate, tt.symbol, tt.suffix, got, tt.want)
 			}
 		})
 	}
@@ -134,7 +147,7 @@ func TestSaveCurrencyConfig(t *testing.T) {
 
 func TestResolveCurrencyRateUSD(t *testing.T) {
 	cfg := &CurrencyConfig{Currency: "USD"}
-	sym, rate := resolveCurrencyRate(cfg, "")
+	sym, _, rate := resolveCurrencyRate(cfg, "")
 	if sym != "$" || rate != 0 {
 		t.Errorf("USD should return $, 0; got %q, %f", sym, rate)
 	}
@@ -142,7 +155,7 @@ func TestResolveCurrencyRateUSD(t *testing.T) {
 
 func TestResolveCurrencyRateEmpty(t *testing.T) {
 	cfg := &CurrencyConfig{Currency: ""}
-	sym, rate := resolveCurrencyRate(cfg, "")
+	sym, _, rate := resolveCurrencyRate(cfg, "")
 	if sym != "$" || rate != 0 {
 		t.Errorf("empty currency should return $, 0; got %q, %f", sym, rate)
 	}
@@ -154,9 +167,12 @@ func TestResolveCurrencyRateCached(t *testing.T) {
 		CachedRate:  18.5,
 		RateUpdated: "2099-01-01T00:00:00Z", // far future = not stale
 	}
-	sym, rate := resolveCurrencyRate(cfg, "")
+	sym, suffix, rate := resolveCurrencyRate(cfg, "")
 	if sym != "R" {
 		t.Errorf("symbol = %q, want R", sym)
+	}
+	if suffix != false {
+		t.Errorf("suffix = %v, want false", suffix)
 	}
 	if rate != 18.5 {
 		t.Errorf("rate = %f, want 18.5", rate)
