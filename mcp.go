@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -218,7 +219,9 @@ func extractCwdFromTranscript(transcriptPath string) string {
 			return entry.Cwd
 		}
 	}
-	_ = scanner.Err()
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "goccc: warning: reading transcript for cwd: %v\n", err)
+	}
 	return ""
 }
 

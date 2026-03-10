@@ -4,7 +4,7 @@ CLI tool that parses Claude Code JSONL logs from `~/.claude/projects/` and calcu
 
 ## Stack
 
-Go 1.26, stdlib + fatih/color, GoReleaser for cross-platform builds
+Go 1.26, stdlib only (zero external deps), GoReleaser for cross-platform builds
 
 ## Structure
 
@@ -14,9 +14,11 @@ Go 1.26, stdlib + fatih/color, GoReleaser for cross-platform builds
 ├── parser.go          # JSONL log walking, file parsing (parseFile), deduplication by requestId
 ├── pricing.go         # Per-model pricing table, cost calculation, model name resolution
 ├── format.go          # Terminal and JSON output formatting
+├── color.go           # ANSI color helpers (custom implementation, no external deps)
 ├── statusline.go      # Claude Code statusline mode (reads stdin JSON, outputs formatted cost line)
 ├── currency.go        # Currency config (~/.goccc.json), exchange rate fetching/caching, symbol table
 ├── mcp.go             # MCP server detection, per-project disable filtering, plugin walk
+├── update.go          # Version update checking against GitHub releases
 ├── *_test.go          # Table-driven tests for each module
 ├── fixture_test.go    # Integration test against realistic JSONL fixture
 ├── testdata/          # Static JSONL fixture (multi-turn convo with subagents)
