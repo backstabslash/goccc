@@ -1,8 +1,77 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestEmbeddedPricingLoads(t *testing.T) {
+	var data PricingData
+	if err := json.Unmarshal(embeddedPricingJSON, &data); err != nil {
+		t.Fatalf("embedded pricing.json failed to parse: %v", err)
+	}
+	if len(data.Models) == 0 {
+		t.Fatal("embedded pricing.json has no models")
+	}
+	if data.DefaultModel == "" {
+		t.Fatal("embedded pricing.json has no default_model")
+	}
+	if _, ok := data.Models[data.DefaultModel]; !ok {
+		t.Fatalf("default_model %q not found in models", data.DefaultModel)
+	}
+}
+
+func TestInitPricingUsesCachedFile(t *testing.T) {
+	cachedData := `{
+		"models": {
+			"claude-test-model": { "input": 99.00, "output": 99.00 }
+		},
+		"families": [],
+		"default_model": "claude-test-model",
+		"display_names": [
+			{ "prefix": "test-model", "name": "Test Model" }
+		]
+	}`
+
+	cacheDir := t.TempDir()
+	cacheFile := filepath.Join(cacheDir, "pricing.json")
+	_ = os.WriteFile(cacheFile, []byte(cachedData), 0o644)
+
+	origCachePath := pricingCachePath
+	pricingCachePath = func() string { return cacheFile }
+	defer func() {
+		pricingCachePath = origCachePath
+		initPricing()
+	}()
+
+	initPricing()
+
+	p := resolvePricing("claude-test-model")
+	if p.Input != 99.0 {
+		t.Errorf("expected cached input=99.0, got %f", p.Input)
+	}
+	if name := shortModel("claude-test-model"); name != "Test Model" {
+		t.Errorf("expected display name 'Test Model', got %q", name)
+	}
+}
+
+func TestInitPricingFallsBackToEmbedded(t *testing.T) {
+	origCachePath := pricingCachePath
+	pricingCachePath = func() string { return "" }
+	defer func() {
+		pricingCachePath = origCachePath
+		initPricing()
+	}()
+
+	initPricing()
+
+	p := resolvePricing("claude-opus-4-6")
+	if p.Input != 5.0 {
+		t.Errorf("expected embedded input=5.0, got %f", p.Input)
+	}
+}
 
 func TestResolvePricingExactMatch(t *testing.T) {
 	p := resolvePricing("claude-opus-4-6")
@@ -36,7 +105,6 @@ func TestCalcCostBasic(t *testing.T) {
 		CacheCreationInputTokens: 0,
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	// (0.1 * 5) + (0.1 * 25) = 0.5 + 2.5 = 3.0
 	assertCost(t, "basic opus cost", cost, 3.0)
 }
 
@@ -48,8 +116,6 @@ func TestCalcCostWithCache(t *testing.T) {
 		CacheCreationInputTokens: 100_000,
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	// cache read: (0.1 * 0.5) = 0.05, cache write 1h: (0.1 * 10.0) = 1.0
-	// total input: 200K = threshold, NOT exceeded → standard
 	assertCost(t, "cache cost", cost, 1.05)
 }
 
@@ -65,7 +131,6 @@ func TestCalcCostWithCacheBreakdown(t *testing.T) {
 		},
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	// All treated as 1h: (0.1 * 10.0) = 1.0
 	assertCost(t, "cache breakdown cost", cost, 1.0)
 }
 
@@ -76,8 +141,6 @@ func TestCalcCostWebSearch(t *testing.T) {
 		ServerToolUse: &ServerToolUse{WebSearchRequests: 5},
 	}
 	cr := calcCostResult("claude-opus-4-6", usage)
-	// Token cost: (0.1 * 5) + (0.01 * 25) = 0.5 + 0.25 = 0.75
-	// Web search cost: 5 * 0.01 = 0.05
 	assertCost(t, "web search total", cr.Cost, 0.80)
 	if cr.WebSearches != 5 {
 		t.Errorf("web searches = %d, want 5", cr.WebSearches)
@@ -88,14 +151,12 @@ func TestCalcCostWebSearch(t *testing.T) {
 }
 
 func TestCalcCostLongContextStandard(t *testing.T) {
-	// Total input = 100K + 50K = 150K < 200K threshold → standard pricing
 	usage := Usage{
 		InputTokens:          100_000,
 		OutputTokens:         1_000_000,
 		CacheReadInputTokens: 50_000,
 	}
 	cr := calcCostResult("claude-opus-4-6", usage)
-	// Standard: (0.1 * 5) + (1.0 * 25) + (0.05 * 0.5) = 0.5 + 25.0 + 0.025 = 25.525
 	assertCost(t, "standard context", cr.Cost, 25.525)
 	if cr.LongCtx {
 		t.Error("expected LongCtx = false for <200K")
@@ -103,14 +164,12 @@ func TestCalcCostLongContextStandard(t *testing.T) {
 }
 
 func TestCalcCostLongContextPremium(t *testing.T) {
-	// Total input = 100K + 150K = 250K > 200K threshold → premium pricing
 	usage := Usage{
 		InputTokens:          100_000,
 		OutputTokens:         1_000_000,
 		CacheReadInputTokens: 150_000,
 	}
 	cr := calcCostResult("claude-opus-4-6", usage)
-	// Premium: (0.1 * 10) + (1.0 * 37.5) + (0.15 * 1.0) = 1.0 + 37.5 + 0.15 = 38.65
 	assertCost(t, "long context premium", cr.Cost, 38.65)
 	if !cr.LongCtx {
 		t.Error("expected LongCtx = true for >200K")
@@ -126,8 +185,6 @@ func TestCalcCostLongContextSonnet(t *testing.T) {
 		CacheCreation:            &CacheCreation{Ephemeral5mInputTokens: 10_000},
 	}
 	cr := calcCostResult("claude-sonnet-4-6", usage)
-	// Total input = 50K + 200K + 10K = 260K > 200K → premium
-	// Premium: (0.05 * 6) + (0.5 * 22.5) + (0.2 * 0.6) + (0.01 * 12.0) = 0.3 + 11.25 + 0.12 + 0.12 = 11.79
 	assertCost(t, "sonnet long context", cr.Cost, 11.79)
 	if !cr.LongCtx {
 		t.Error("expected LongCtx = true")
@@ -135,14 +192,12 @@ func TestCalcCostLongContextSonnet(t *testing.T) {
 }
 
 func TestCalcCostLongContextNoModel(t *testing.T) {
-	// Haiku has no long-context pricing — should stay standard even with >200K
 	usage := Usage{
 		InputTokens:          100_000,
 		OutputTokens:         100_000,
 		CacheReadInputTokens: 200_000,
 	}
 	cr := calcCostResult("claude-haiku-4-5-20251001", usage)
-	// Standard: (0.1 * 1) + (0.1 * 5) + (0.2 * 0.1) = 0.1 + 0.5 + 0.02 = 0.62
 	assertCost(t, "haiku no long ctx", cr.Cost, 0.62)
 	if cr.LongCtx {
 		t.Error("expected LongCtx = false for haiku (no premium)")
@@ -160,7 +215,6 @@ func TestCalcCostCache5mFlag(t *testing.T) {
 		CacheCreationInputTokens: 100_000,
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	// With 5m: cache read (0.1 * 0.5) = 0.05, cache write 5m (0.1 * 6.25) = 0.625
 	assertCost(t, "cache 5m flag", cost, 0.675)
 }
 

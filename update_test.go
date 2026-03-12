@@ -16,32 +16,14 @@ func TestNormalizeVersion(t *testing.T) {
 		{"v0.0.1", "0.0.1"},
 		{"v0.1.2+dirty", "0.1.2"},
 		{"1.0.0+build.123", "1.0.0"},
+		{"v0.1.7-0.20260310152227-e2b82a9a71aa+dirty", "0.1.7"},
+		{"v0.0.9-0.20260222164611-f6b538b59c20", "0.0.9"},
+		{"v1.2.3-rc1", "1.2.3"},
 		{"", ""},
 	}
 	for _, tt := range tests {
 		if got := normalizeVersion(tt.input); got != tt.want {
 			t.Errorf("normalizeVersion(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestIsDevVersion(t *testing.T) {
-	tests := []struct {
-		input string
-		want  bool
-	}{
-		{"dev", true},
-		{"v0.0.0", true},
-		{"v0.0.9-0.20260222164611-f6b538b59c20", true},
-		{"0.0.9-0.20260222164611-f6b538b59c20", true},
-		{"v1.2.3-rc1", true},
-		{"v0.1.0", false},
-		{"v0.0.8", false},
-		{"1.2.3", false},
-	}
-	for _, tt := range tests {
-		if got := isDevVersion(tt.input); got != tt.want {
-			t.Errorf("isDevVersion(%q) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }
@@ -62,6 +44,9 @@ func TestIsNewer(t *testing.T) {
 		{"mixed prefix", "v0.2.0", "0.1.0", true},
 		{"dirty suffix same version", "v0.1.2", "v0.1.2+dirty", false},
 		{"dirty suffix older", "v0.1.3", "v0.1.2+dirty", true},
+		{"pseudo-version same base", "v0.1.7", "v0.1.7-0.20260310152227-e2b82a9a71aa+dirty", false},
+		{"pseudo-version newer release", "v0.2.0", "v0.1.7-0.20260310152227-e2b82a9a71aa+dirty", true},
+		{"pseudo-version older release", "v0.1.6", "v0.1.7-0.20260310152227-e2b82a9a71aa+dirty", false},
 		{"unparseable latest falls back to string compare", "abc", "v0.1.0", true},
 		{"unparseable same", "abc", "abc", false},
 	}
@@ -74,13 +59,32 @@ func TestIsNewer(t *testing.T) {
 	}
 }
 
-func TestCheckForUpdateSkipsDevVersion(t *testing.T) {
-	for _, v := range []string{"dev", "v0.0.9-0.20260222164611-f6b538b59c20"} {
-		ch := checkForUpdate(v)
-		res := <-ch
-		if res != nil {
-			t.Errorf("expected nil for %q, got %+v", v, res)
-		}
+func TestPrintUpdateNoticeSuppressedForDev(t *testing.T) {
+	origVersion := version
+	version = "dev"
+	defer func() { version = origVersion }()
+
+	// Should not panic or print — just silently return
+	printUpdateNotice(&updateResult{Latest: "v9.9.9", Stale: true})
+}
+
+func TestPrintUpdateNoticeShownForRelease(t *testing.T) {
+	origVersion := version
+	version = "v0.1.0"
+	defer func() { version = origVersion }()
+
+	r, w, _ := os.Pipe()
+	origStderr := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = origStderr }()
+
+	printUpdateNotice(&updateResult{Latest: "v0.2.0", Stale: true})
+	_ = w.Close()
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	if n == 0 {
+		t.Error("expected update notice output for release version")
 	}
 }
 

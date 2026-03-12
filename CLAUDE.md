@@ -12,13 +12,14 @@ Go 1.26, stdlib only (zero external deps), GoReleaser for cross-platform builds
 .
 ├── main.go            # CLI flags and entrypoint
 ├── parser.go          # JSONL log walking, file parsing (parseFile), deduplication by requestId
-├── pricing.go         # Per-model pricing table, cost calculation, model name resolution
+├── pricing.go         # Pricing resolution, cost calculation, model name resolution
+├── pricing.json       # Externalized model pricing data (embedded + fetched from repo)
 ├── format.go          # Terminal and JSON output formatting
 ├── color.go           # ANSI color helpers (custom implementation, no external deps)
 ├── statusline.go      # Claude Code statusline mode (reads stdin JSON, outputs formatted cost line)
 ├── currency.go        # Currency config (~/.goccc.json), exchange rate fetching/caching, symbol table
 ├── mcp.go             # MCP server detection, per-project disable filtering, plugin walk
-├── update.go          # Version update checking against GitHub releases
+├── update.go          # Version update checking and remote pricing cache refresh
 ├── *_test.go          # Table-driven tests for each module
 ├── fixture_test.go    # Integration test against realistic JSONL fixture
 ├── testdata/          # Static JSONL fixture (multi-turn convo with subagents)
@@ -95,43 +96,20 @@ Independently verified against a Python parser on 272 requests across 11 files (
 
 ## Conventions
 
-- **Flat package structure** — all code in `package main`, one concern per file (parser, pricing, format)
-- **Dedup by requestId** — streaming duplicates are collapsed by keeping the last entry per `requestId` in a map
-- **Pricing via prefix matching** — exact model ID lookup first, then longest-prefix match from `familyPrefixes`, then fallback to `defaultPricing`
-- **Cache write pricing defaults to 1h** — Claude Code JSONL logs report all cache writes as `ephemeral_5m`, but Anthropic billing matches 1-hour tier pricing (2x input). The `cacheWriteAs1h` flag (default true) promotes all 5m tokens to 1h in `CacheWriteTokens()`. Override with `-cache-5m` CLI flag. Bucket fields `CacheWrite5m`/`CacheWrite1h` still track tiers separately for when the JSONL data is eventually fixed
-- **Table-driven tests** — all tests use `[]struct{ name; input; expected }` pattern with `t.Run` subtests
+- **Flat package structure** — all code in `package main`, one concern per file
+- **Dedup by requestId** — streaming duplicates collapsed by keeping the last entry per `requestId` in a map
+- **Externalized pricing** — all model pricing, family prefixes, display names, and default model live in `pricing.json`. Embedded via `//go:embed`, with a remote-cached copy fetched from the repo every 24h. `initPricing()` prefers cached over embedded. Adding a new model requires only editing `pricing.json` — no code changes or binary release needed
+- **Pricing resolution** — exact model ID → longest family prefix match → `defaultPricing`
+- **Cache write pricing defaults to 1h** — Claude Code JSONL logs report all cache writes as `ephemeral_5m`, but Anthropic billing matches 1-hour tier pricing (2x input). Override with `-cache-5m`. `CacheWrite5m`/`CacheWrite1h` remain separate fields (different pricing multipliers)
 - **Shared file parsing** — `parseFile()` in parser.go is used by both `parseLogs` (directory walk) and `parseSession` (statusline single-session)
-- **Local timezone everywhere** — cutoff uses local midnight (`time.Date` with `now.Location()`), date bucketing uses `parsed.Local().Format("2006-01-02")`. Never use `UTC()` for user-facing date logic.
-- **Pre-filter before JSON parsing** — checks for both `"type":"assistant"` and `"type": "assistant"` to tolerate compact and spaced JSON formatting before full `json.Unmarshal`
-- **Scanner error checking** — always check `scanner.Err()` after the scan loop to catch I/O errors and buffer overflows
-- **Mtime-based file skipping** — when a day cutoff is active, files with `ModTime` before the cutoff are skipped entirely (safe because JSONL logs are append-only)
-- **Directory-level project filter** — `fs.SkipDir` skips entire non-matching project directories during walk
-- **Aggregate helpers on ParseResult** — `Totals()` returns a `UsageTotals` struct; `DateRange()` returns the earliest and latest dates. Both are used by format.go, statusline.go, and JSON output to avoid duplicating accumulation logic.
-- **Named threshold constants** — cost color thresholds (`costThresholdRed`, `costThresholdYellow`) and context percentage thresholds (`ctxThresholdRed`, `ctxThresholdYellow`) are named constants, not magic numbers
-- **Model name resolution via HasPrefix** — `shortModel()` strips the `claude-` prefix then uses `strings.HasPrefix` (not `Contains`) for precise matching
-- **3-level bucket nesting for branches** — `BranchUsage` is `map[project]map[branch]map[model]*Bucket`, using `getOrCreate3LevelBucket` which reuses `getOrCreateNestedBucket` for inner levels
-- **Git branch from JSONL** — `gitBranch` field on assistant entries; empty branch defaults to `"(no branch)"`
+- **Local timezone everywhere** — local midnight for cutoffs, `parsed.Local()` for date bucketing. Never use `UTC()` for user-facing date logic
 - **MCP detection is best-effort** — all MCP detection functions return nil/empty on error; statusline never fails due to missing config
 - **MCP sources** — five detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, project-level `.mcp.json` via `cwd` from transcript, `settings.local.json` in project `.claude/`, and per-project `mcpServers` in `~/.claude.json`
-- **MCP per-project disable filtering** — `~/.claude.json` stores `disabledMcpServers` and `disabledMcpjsonServers` per project path; entries use plain names (`"my-server"`) or plugin format (`"plugin:<name>:<server>"`)
-- **MCP project resolution from slug** — when transcript has no `cwd` yet (fresh session), the project path is derived by matching the transcript directory slug against `~/.claude.json` project keys (slug = path with `/` replaced by `-`)
-- **Single-read config files** — `settings.json` and `~/.claude.json` are each read once and their parsed data shared across detection and filtering
-- **Plugin walk is layout-agnostic** — `parseEnabledPluginMCPs` walks the plugins dir for `.mcp.json` files and matches ancestor directory names to enabled plugin names, supporting any directory structure
-- **Local currency via config file** — `~/.goccc.json` stores `currency` (ISO 4217 code), `cached_rate`, and `rate_updated`; exchange rates auto-fetched from open.er-api.com and cached for 24h
-- **Currency-aware fmtCost** — `fmtCost()` checks `activeCurrency.Rate`; when > 0, multiplies USD cost by rate and uses the resolved symbol. Color thresholds stay in USD
-- **Currency symbol placement** — `currencySymbols` maps ISO codes to `currencyInfo{Symbol, Suffix}`. Prefix currencies render as `$10.00`, suffix currencies as `10.00 lei`. Unknown currencies default to suffix with the ISO code (e.g. `10.00 XYZ`)
-- **CLI currency overrides** — `-currency-symbol` and `-currency-rate` flags override config; both required together
-- **JSON output backward-compatible** — cost fields always in USD; `currency` metadata object added only when a non-USD currency is active
+- **Local currency** — `~/.goccc.json` stores currency code, cached rate, and timestamp; exchange rates auto-fetched and cached for 24h. `-currency-symbol` and `-currency-rate` flags override config (both required together). JSON output cost fields always in USD
 
 ## Don't
 
-- Don't add new model pricing without updating both `pricingTable`, `familyPrefixes`, and `shortModel()` — prefix matching and display names depend on all three
-- Don't use `log.Fatal` or `panic` — the project uses `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)` for errors
-- Don't parse timestamps with custom layouts — use `time.RFC3339` consistently, matching Claude Code's log format
-- Don't collapse `CacheWrite5m` and `CacheWrite1h` into a single field — they have different pricing multipliers
-- Don't use `time.Now().UTC().Truncate(24h)` for day boundaries — use `time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())` for local midnight
-- Don't slice timestamp strings for date extraction (`rec.Timestamp[:10]`) — parse with `time.Parse(time.RFC3339, ...)` and convert to local
+- Don't add new model pricing by editing Go code — update `pricing.json` instead (models, families, and display_names sections)
+- Don't use `log.Fatal` or `panic` — use `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)`
+- Don't use UTC for day boundaries — use `time.Date(...)` with `now.Location()` for local midnight
 - Don't add JSON tags to `Bucket` — it's never directly marshalled; `printJSON` defines its own output structs
-- Don't use `strings.Contains` for model name matching in `shortModel()` — use `strings.HasPrefix` after stripping the `claude-` prefix to avoid false substring matches
-- Don't duplicate total accumulation — use `ParseResult.Totals()` instead of manually summing across `ModelUsage`
-- Don't ignore `scanner.Err()` after scan loops or discard `parseFile` errors from subagents — surface them to stderr

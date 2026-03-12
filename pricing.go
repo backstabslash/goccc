@@ -1,6 +1,11 @@
 package main
 
 import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -10,16 +15,13 @@ const (
 	webSearchCostPerSearch = 0.01
 )
 
-// cacheWriteAs1h treats all cache writes as 1-hour tier (2x input price).
-// Claude Code JSONL logs report all cache writes as ephemeral_5m, but
-// Anthropic billing matches 1-hour pricing. Default true.
 var cacheWriteAs1h = true
 
 type ModelPricing struct {
-	Input         float64
-	Output        float64
-	LongCtxInput  float64 // 0 = no long-context pricing for this model
-	LongCtxOutput float64
+	Input         float64 `json:"input"`
+	Output        float64 `json:"output"`
+	LongCtxInput  float64 `json:"long_ctx_input,omitempty"`
+	LongCtxOutput float64 `json:"long_ctx_output,omitempty"`
 }
 
 func (p ModelPricing) CacheWrite5m() float64 { return p.Input * 1.25 }
@@ -30,43 +32,85 @@ func (p ModelPricing) LongCtxCacheWrite5m() float64 { return p.LongCtxInput * 1.
 func (p ModelPricing) LongCtxCacheWrite1h() float64 { return p.LongCtxInput * 2.0 }
 func (p ModelPricing) LongCtxCacheRead() float64    { return p.LongCtxInput * 0.1 }
 
-// Source: https://platform.claude.com/docs/en/about-claude/pricing
-var pricingTable = map[string]ModelPricing{
-	"claude-opus-4-6":            {Input: 5.00, Output: 25.00, LongCtxInput: 10.00, LongCtxOutput: 37.50},
-	"claude-opus-4-5-20251101":   {Input: 5.00, Output: 25.00},
-	"claude-opus-4-1-20250414":   {Input: 15.00, Output: 75.00},
-	"claude-sonnet-4-6":          {Input: 3.00, Output: 15.00, LongCtxInput: 6.00, LongCtxOutput: 22.50},
-	"claude-sonnet-4-5-20250929": {Input: 3.00, Output: 15.00, LongCtxInput: 6.00, LongCtxOutput: 22.50},
-	"claude-sonnet-4-20250514":   {Input: 3.00, Output: 15.00, LongCtxInput: 6.00, LongCtxOutput: 22.50},
-	"claude-haiku-4-5-20251001":  {Input: 1.00, Output: 5.00},
-	"claude-haiku-3-5-20241022":  {Input: 0.80, Output: 4.00},
+//go:embed pricing.json
+var embeddedPricingJSON []byte
+
+type PricingData struct {
+	Models       map[string]ModelPricing `json:"models"`
+	Families     []PricingFamily         `json:"families"`
+	DefaultModel string                  `json:"default_model"`
+	DisplayNames []PricingDisplayName    `json:"display_names"`
 }
 
-// Sorted longest-first at init for correct prefix matching.
-var familyPrefixes = []struct {
-	Prefix string
-	Key    string
-}{
-	{"claude-opus-4-6", "claude-opus-4-6"},
-	{"claude-opus-4-5", "claude-opus-4-5-20251101"},
-	{"claude-opus-4-1", "claude-opus-4-1-20250414"},
-	{"claude-opus-4", "claude-opus-4-1-20250414"},
-	{"claude-sonnet-4-6", "claude-sonnet-4-6"},
-	{"claude-sonnet-4-5", "claude-sonnet-4-5-20250929"},
-	{"claude-sonnet-4", "claude-sonnet-4-20250514"},
-	{"claude-sonnet-3", "claude-sonnet-4-5-20250929"},
-	{"claude-haiku-4-5", "claude-haiku-4-5-20251001"},
-	{"claude-haiku-3-5", "claude-haiku-3-5-20241022"},
-	{"claude-haiku-3", "claude-haiku-3-5-20241022"},
+type PricingFamily struct {
+	Prefix string `json:"prefix"`
+	Model  string `json:"model"`
 }
 
-func init() {
+type PricingDisplayName struct {
+	Prefix string `json:"prefix"`
+	Name   string `json:"name"`
+}
+
+var (
+	pricingTable   map[string]ModelPricing
+	familyPrefixes []PricingFamily
+	defaultPricing ModelPricing
+	displayNames   []PricingDisplayName
+)
+
+var pricingCachePath = func() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "goccc", "pricing.json")
+}
+
+func loadPricingFrom(data []byte) (*PricingData, error) {
+	var pd PricingData
+	if err := json.Unmarshal(data, &pd); err != nil {
+		return nil, err
+	}
+	if len(pd.Models) == 0 {
+		return nil, fmt.Errorf("pricing data has no models")
+	}
+	return &pd, nil
+}
+
+func applyPricing(pd *PricingData) {
+	pricingTable = pd.Models
+	familyPrefixes = pd.Families
 	sort.Slice(familyPrefixes, func(i, j int) bool {
 		return len(familyPrefixes[i].Prefix) > len(familyPrefixes[j].Prefix)
 	})
+	displayNames = pd.DisplayNames
+	sort.Slice(displayNames, func(i, j int) bool {
+		return len(displayNames[i].Prefix) > len(displayNames[j].Prefix)
+	})
+	if p, ok := pricingTable[pd.DefaultModel]; ok {
+		defaultPricing = p
+	}
 }
 
-var defaultPricing = pricingTable["claude-sonnet-4-6"]
+func initPricing() {
+	cached := pricingCachePath()
+	if cached != "" {
+		if data, err := os.ReadFile(cached); err == nil {
+			if pd, err := loadPricingFrom(data); err == nil {
+				applyPricing(pd)
+				return
+			}
+			fmt.Fprintf(os.Stderr, "goccc: warning: cached pricing.json invalid, using embedded\n")
+		}
+	}
+	pd, err := loadPricingFrom(embeddedPricingJSON)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: embedded pricing.json is invalid: %v\n", err)
+		os.Exit(1)
+	}
+	applyPricing(pd)
+}
 
 func resolvePricing(model string) ModelPricing {
 	if p, ok := pricingTable[model]; ok {
@@ -74,7 +118,9 @@ func resolvePricing(model string) ModelPricing {
 	}
 	for _, fp := range familyPrefixes {
 		if strings.HasPrefix(model, fp.Prefix) {
-			return pricingTable[fp.Key]
+			if p, ok := pricingTable[fp.Model]; ok {
+				return p
+			}
 		}
 	}
 	return defaultPricing
@@ -166,32 +212,10 @@ func calcCost(model string, usage Usage) float64 {
 
 func shortModel(model string) string {
 	m := strings.TrimPrefix(strings.ToLower(model), "claude-")
-	switch {
-	case strings.HasPrefix(m, "opus-4-6"):
-		return "Opus 4.6"
-	case strings.HasPrefix(m, "opus-4-5"):
-		return "Opus 4.5"
-	case strings.HasPrefix(m, "opus-4-1"):
-		return "Opus 4.1"
-	case strings.HasPrefix(m, "opus-4"):
-		return "Opus 4"
-	case strings.HasPrefix(m, "opus-3"):
-		return "Opus 3"
-	case strings.HasPrefix(m, "sonnet-4-6"):
-		return "Sonnet 4.6"
-	case strings.HasPrefix(m, "sonnet-4-5"):
-		return "Sonnet 4.5"
-	case strings.HasPrefix(m, "sonnet-4"):
-		return "Sonnet 4"
-	case strings.HasPrefix(m, "sonnet-3"):
-		return "Sonnet 3.x"
-	case strings.HasPrefix(m, "haiku-4-5"):
-		return "Haiku 4.5"
-	case strings.HasPrefix(m, "haiku-3-5"):
-		return "Haiku 3.5"
-	case strings.HasPrefix(m, "haiku-3"):
-		return "Haiku 3"
-	default:
-		return model
+	for _, dn := range displayNames {
+		if strings.HasPrefix(m, dn.Prefix) {
+			return dn.Name
+		}
 	}
+	return model
 }

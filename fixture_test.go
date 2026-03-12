@@ -2,8 +2,14 @@ package main
 
 import (
 	"math"
+	"os"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	initPricing()
+	os.Exit(m.Run())
+}
 
 // TestFixture_RealisticConversation runs parseLogs against the static testdata/
 // fixture — a multi-turn JWT refactor conversation with streaming duplicates,

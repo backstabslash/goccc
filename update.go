@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ const (
 	updateCheckInterval = 24 * time.Hour
 	updateCheckTimeout  = 2 * time.Second
 	releasesURL         = "https://api.github.com/repos/backstabslash/goccc/releases/latest"
+	pricingURL          = "https://raw.githubusercontent.com/backstabslash/goccc/main/pricing.json"
 )
 
 type updateResult struct {
@@ -22,23 +24,8 @@ type updateResult struct {
 	Stale  bool
 }
 
-func isDevVersion(v string) bool {
-	if v == "dev" || strings.HasPrefix(v, "v0.0.0") {
-		return true
-	}
-	norm := strings.TrimPrefix(v, "v")
-	if idx := strings.Index(norm, "-"); idx > 0 {
-		return true
-	}
-	return false
-}
-
 func checkForUpdate(current string) <-chan *updateResult {
 	ch := make(chan *updateResult, 1)
-	if isDevVersion(current) {
-		ch <- nil
-		return ch
-	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -48,6 +35,18 @@ func checkForUpdate(current string) <-chan *updateResult {
 		ch <- doUpdateCheck(current)
 	}()
 	return ch
+}
+
+func refreshPricingCache() {
+	cached := pricingCachePath()
+	if cached == "" {
+		return
+	}
+	if info, err := os.Stat(cached); err == nil && time.Since(info.ModTime()) < updateCheckInterval {
+		return
+	}
+	client := &http.Client{Timeout: updateCheckTimeout}
+	fetchAndCachePricing(cached, client)
 }
 
 func doUpdateCheck(current string) *updateResult {
@@ -62,6 +61,7 @@ func doUpdateCheck(current string) *updateResult {
 		if len(parts) == 2 {
 			if ts, err := time.Parse(time.RFC3339, parts[0]); err == nil {
 				if time.Since(ts) < updateCheckInterval {
+					refreshPricingCache()
 					latest := strings.TrimSpace(parts[1])
 					if latest != "" && isNewer(latest, current) {
 						return &updateResult{Latest: latest, Stale: true}
@@ -89,15 +89,46 @@ func doUpdateCheck(current string) *updateResult {
 	_ = os.MkdirAll(filepath.Dir(cacheFile), 0o755)
 	_ = os.WriteFile(cacheFile, []byte(time.Now().Format(time.RFC3339)+"\n"+release.TagName+"\n"), 0o644)
 
+	refreshPricingCache()
+
 	if isNewer(release.TagName, current) {
 		return &updateResult{Latest: release.TagName, Stale: true}
 	}
 	return nil
 }
 
+func fetchAndCachePricing(cacheFile string, client *http.Client) bool {
+	resp, err := client.Get(pricingURL)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	const maxPricingSize = 10 << 20 // 10 MB
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxPricingSize))
+	if err != nil {
+		return false
+	}
+
+	if _, err := loadPricingFrom(data); err != nil {
+		return false
+	}
+
+	_ = os.MkdirAll(filepath.Dir(cacheFile), 0o755)
+	_ = os.WriteFile(cacheFile, data, 0o644)
+	return true
+}
+
 func normalizeVersion(v string) string {
 	v = strings.TrimPrefix(v, "v")
 	if idx := strings.Index(v, "+"); idx >= 0 {
+		v = v[:idx]
+	}
+	if idx := strings.Index(v, "-"); idx >= 0 {
 		v = v[:idx]
 	}
 	return v
@@ -133,7 +164,7 @@ func isNewer(latest, current string) bool {
 }
 
 func printUpdateNotice(res *updateResult) {
-	if res == nil || !res.Stale {
+	if res == nil || !res.Stale || version == "dev" {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "\n  %s %s → %s\n",

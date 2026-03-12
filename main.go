@@ -101,6 +101,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	initPricing()
+
 	if *statusline {
 		runStatusline(*baseDir, *noMCP)
 		return
