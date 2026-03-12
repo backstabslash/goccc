@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -319,113 +318,5 @@ func TestDetectMCPs_EmptyGraceful(t *testing.T) {
 	names := detectMCPs("/nonexistent/path", "")
 	if len(names) != 0 {
 		t.Errorf("expected empty for missing paths, got %v", names)
-	}
-}
-
-func TestDetectMCPs_CombinesSources(t *testing.T) {
-	dir := t.TempDir()
-	claudeDir := filepath.Join(dir, ".claude")
-	pluginsDir := filepath.Join(claudeDir, "plugins")
-	projectDir := filepath.Join(dir, "project")
-	mustMkdir(t, projectDir)
-
-	settings := map[string]interface{}{
-		"mcpServers":     map[string]interface{}{"direct-server": map[string]string{}},
-		"enabledPlugins": map[string]bool{"github@official": true, "disabled@official": false},
-	}
-	data, _ := json.Marshal(settings)
-	mustMkdir(t, claudeDir)
-	mustWrite(t, filepath.Join(claudeDir, "settings.json"), data)
-
-	githubDir := filepath.Join(pluginsDir, "cache", "official", "github", "1.0.0")
-	mustMkdir(t, githubDir)
-	mustWrite(t, filepath.Join(githubDir, ".mcp.json"), []byte(`{"github":{}}`))
-
-	transcriptPath := filepath.Join(dir, "session.jsonl")
-	line := `{"type":"user","cwd":"` + filepath.ToSlash(projectDir) + `"}` + "\n"
-	mustWrite(t, transcriptPath, []byte(line))
-
-	mcpData, _ := json.Marshal(map[string]interface{}{"mcpServers": map[string]interface{}{"project-db": map[string]string{}}})
-	mustWrite(t, filepath.Join(projectDir, ".mcp.json"), mcpData)
-
-	localSettingsDir := filepath.Join(projectDir, ".claude")
-	mustMkdir(t, localSettingsDir)
-	localSettings, _ := json.Marshal(map[string]interface{}{"mcpServers": map[string]interface{}{"local-server": map[string]string{}}})
-	mustWrite(t, filepath.Join(localSettingsDir, "settings.local.json"), localSettings)
-
-	names := detectMCPs(claudeDir, transcriptPath)
-	if len(names) != 4 {
-		t.Errorf("expected 4 MCPs (direct-server, github, local-server, project-db), got %d: %v", len(names), names)
-	}
-	found := map[string]bool{}
-	for _, n := range names {
-		found[n] = true
-	}
-	if !found["direct-server"] || !found["github"] || !found["project-db"] || !found["local-server"] {
-		t.Errorf("missing expected MCP names: %v", names)
-	}
-}
-
-func TestDetectMCPs_ClaudeJSONProjectMCPs(t *testing.T) {
-	dir := t.TempDir()
-	claudeDir := filepath.Join(dir, ".claude")
-	mustMkdir(t, claudeDir)
-	mustWrite(t, filepath.Join(claudeDir, "settings.json"), []byte(`{}`))
-
-	projectPath := "/Users/testuser"
-	claudeJSON := map[string]interface{}{
-		"projects": map[string]interface{}{
-			projectPath: map[string]interface{}{
-				"mcpServers": map[string]interface{}{
-					"developer-mcp-server":       map[string]string{"command": "node"},
-					"developer-mcp-server-local": map[string]string{"command": "node"},
-				},
-				"disabledMcpServers": []string{"developer-mcp-server"},
-			},
-		},
-	}
-	cData, _ := json.Marshal(claudeJSON)
-	mustWrite(t, filepath.Join(dir, ".claude.json"), cData)
-
-	transcriptPath := filepath.Join(dir, "session.jsonl")
-	mustWrite(t, transcriptPath, []byte(`{"cwd":"`+projectPath+`"}`+"\n"))
-
-	names := detectMCPs(claudeDir, transcriptPath)
-	if len(names) != 1 || names[0] != "developer-mcp-server-local" {
-		t.Errorf("expected [developer-mcp-server-local] (other disabled), got %v", names)
-	}
-}
-
-func TestDetectMCPs_FiltersDisabled(t *testing.T) {
-	dir := t.TempDir()
-	claudeDir := filepath.Join(dir, ".claude")
-	mustMkdir(t, claudeDir)
-
-	settings := map[string]interface{}{
-		"mcpServers": map[string]interface{}{
-			"server-a": map[string]string{},
-			"server-b": map[string]string{},
-		},
-	}
-	sData, _ := json.Marshal(settings)
-	mustWrite(t, filepath.Join(claudeDir, "settings.json"), sData)
-
-	projectPath := "/test/project"
-	claudeJSON := map[string]interface{}{
-		"projects": map[string]interface{}{
-			projectPath: map[string]interface{}{
-				"disabledMcpServers": []string{"server-b"},
-			},
-		},
-	}
-	cData, _ := json.Marshal(claudeJSON)
-	mustWrite(t, filepath.Join(dir, ".claude.json"), cData)
-
-	transcriptPath := filepath.Join(dir, "session.jsonl")
-	mustWrite(t, transcriptPath, []byte(`{"cwd":"`+projectPath+`"}`+"\n"))
-
-	names := detectMCPs(claudeDir, transcriptPath)
-	if len(names) != 1 || names[0] != "server-a" {
-		t.Errorf("expected [server-a] after filtering, got %v", names)
 	}
 }

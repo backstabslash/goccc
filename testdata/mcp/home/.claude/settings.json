@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "settings-server": { "command": "node", "args": ["settings-server.js"] }
+  },
+  "enabledPlugins": {
+    "github@official": true,
+    "slack@official": true,
+    "disabled-plugin@official": false
+  }
+}

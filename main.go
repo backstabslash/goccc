@@ -54,6 +54,7 @@ func main() {
 	noColor := flag.Bool("no-color", false, "Disable colored output")
 	showVersion := flag.Bool("version", false, "Show version")
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
+	sessionEnd := flag.Bool("session-end", false, "Session end hook mode: read SessionEnd JSON from stdin, print cost summary")
 	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
 	cache5m := flag.Bool("cache-5m", false, "Price cache writes at 5-minute tier (1.25x) instead of 1-hour (2x)")
 	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
@@ -96,7 +97,7 @@ func main() {
 		cacheWriteAs1h = false
 	}
 
-	if err := initCurrency(*currencySymbolFlag, *currencyRateFlag); err != nil {
+	if err := initConfig(*currencySymbolFlag, *currencyRateFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -105,6 +106,11 @@ func main() {
 
 	if *statusline {
 		runStatusline(*baseDir, *noMCP)
+		return
+	}
+
+	if *sessionEnd {
+		runSessionEnd(*baseDir)
 		return
 	}
 

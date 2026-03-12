@@ -15,6 +15,8 @@ Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, 
 - [Installation](#installation)
 - [Usage](#usage)
 - [Claude Code Statusline](#claude-code-statusline)
+- [Session Exit Hook](#session-exit-hook)
+- [Configuration](#configuration)
 - [Flags](#flags)
 - [How It Works](#how-it-works)
 - [Preserving Log History](#preserving-log-history)
@@ -82,6 +84,8 @@ goccc -currency-symbol "€" -currency-rate 0.92
 
 JSON output always reports costs in USD for backward compatibility, with a `currency` metadata object when a non-USD currency is active.
 
+> See also: [Configuration](#configuration) for threshold customization.
+
 ## Claude Code Statusline
 
 goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider — a live cost dashboard right in your terminal prompt.
@@ -126,6 +130,52 @@ Add to `~/.claude/settings.json`:
 
 To hide the MCP indicator, add `-no-mcp`.
 
+## Session Exit Hook
+
+goccc can show a cost summary when a Claude Code session ends — the feature users miss most since Anthropic removed it.
+
+```text
+💸 $1.87 session (14 reqs, 23m) · 💰 $12.34 today · 🤖 Opus 4.6, Haiku 4.5
+```
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "goccc -session-end"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook runs within Claude Code's 1.5-second timeout. If anything fails, it exits silently — it will never break session teardown.
+
+## Configuration
+
+goccc reads its config from `~/.goccc.json`.
+
+### Cost Thresholds
+
+Cost values are color-coded yellow (warning) and red (alert) when they exceed thresholds. The defaults are $25 and $50 per day. To customize:
+
+```json
+{
+  "warn_threshold": 30,
+  "alert_threshold": 75
+}
+```
+
+Thresholds are in USD (before currency conversion). They apply to the terminal output, statusline, and session exit hook.
+
 ## Flags
 
 | Flag | Short | Default | Description |
@@ -141,6 +191,7 @@ To hide the MCP indicator, add `-no-mcp`.
 | `-json` | | `false` | Output as JSON |
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
+| `-session-end` | | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
 | `-no-mcp` | | `false` | Hide MCP servers from statusline output |
 | `-currency-symbol` | | | Override currency symbol (requires `-currency-rate`) |
@@ -149,15 +200,7 @@ To hide the MCP indicator, add `-no-mcp`.
 
 ## How It Works
 
-Claude Code stores conversation logs as JSONL files under `~/.claude/projects/<project-slug>/`. Each API call produces one or more log entries — streaming responses generate duplicates with the same `requestId`.
-
-goccc:
-
-1. Walks `.jsonl` files under the projects directory, skipping non-matching project directories and files older than the date range (by mtime)
-2. Pre-filters lines with a byte scan before JSON parsing — only `"type":"assistant"` entries carry billing data (tolerates both compact and spaced JSON formatting)
-3. Deduplicates streaming entries by `requestId` (last entry wins)
-4. Calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing), including cache write tiers, long-context premiums (>200K input tokens), and web search costs
-5. Aggregates by model, date (local timezone), project, and month
+goccc parses Claude Code's JSONL conversation logs from `~/.claude/projects/`, deduplicates streaming responses (by `requestId`), and calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing) — including cache write tiers, long-context premiums (>200K input), and web search costs.
 
 ### Cache Write Pricing
 

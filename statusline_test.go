@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadStatuslineInput_Valid(t *testing.T) {
@@ -310,5 +311,206 @@ func TestParseSession_Fixture(t *testing.T) {
 	// Opus: 1.286 + Haiku: 0.061 = 1.347 (all cache writes priced as 1h)
 	if math.Abs(cost-1.347) > 0.000001 {
 		t.Errorf("sessionCost = %.6f, want 1.347000", cost)
+	}
+}
+
+func TestFormatSessionEnd(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	tests := []struct {
+		name     string
+		sCost    float64
+		tCost    float64
+		reqs     int
+		dur      time.Duration
+		models   []string
+		wantSub  []string
+		dontWant []string
+	}{
+		{
+			name:    "full output",
+			sCost:   1.87,
+			tCost:   12.34,
+			reqs:    14,
+			dur:     23 * time.Minute,
+			models:  []string{"Opus 4.6", "Haiku 4.5"},
+			wantSub: []string{"💸 $1.87 session (14 reqs, 23m)", "💰 $12.34 today", "🤖 Opus 4.6, Haiku 4.5"},
+		},
+		{
+			name:     "today omitted when less than session",
+			sCost:    5.00,
+			tCost:    3.00,
+			reqs:     10,
+			dur:      10 * time.Minute,
+			models:   []string{"Opus 4.6"},
+			wantSub:  []string{"💸 $5.00 session (10 reqs, 10m)", "🤖 Opus 4.6"},
+			dontWant: []string{"today"},
+		},
+		{
+			name:     "today omitted when trivially higher (float noise)",
+			sCost:    5.00,
+			tCost:    5.0009,
+			reqs:     10,
+			dur:      10 * time.Minute,
+			models:   []string{"Opus 4.6"},
+			wantSub:  []string{"💸 $5.00 session (10 reqs, 10m)"},
+			dontWant: []string{"today"},
+		},
+		{
+			name:     "today omitted when zero",
+			sCost:    1.00,
+			tCost:    0,
+			reqs:     5,
+			dur:      5 * time.Minute,
+			models:   []string{"Sonnet 4.6"},
+			wantSub:  []string{"💸 $1.00 session (5 reqs, 5m)"},
+			dontWant: []string{"today"},
+		},
+		{
+			name:    "single model no comma",
+			sCost:   0.50,
+			tCost:   2.00,
+			reqs:    3,
+			dur:     2 * time.Minute,
+			models:  []string{"Haiku 4.5"},
+			wantSub: []string{"🤖 Haiku 4.5"},
+		},
+		{
+			name:     "no models omits model segment",
+			sCost:    0.10,
+			tCost:    0,
+			reqs:     1,
+			dur:      1 * time.Minute,
+			models:   nil,
+			wantSub:  []string{"💸 $0.10 session (1 req, 1m)"},
+			dontWant: []string{"🤖"},
+		},
+		{
+			name:    "zero duration shows <1m",
+			sCost:   0.50,
+			tCost:   0,
+			reqs:    2,
+			dur:     30 * time.Second,
+			models:  []string{"Opus 4.6"},
+			wantSub: []string{"💸 $0.50 session (2 reqs, <1m)"},
+		},
+		{
+			name:    "long duration in hours",
+			sCost:   10.00,
+			tCost:   15.00,
+			reqs:    100,
+			dur:     2*time.Hour + 15*time.Minute,
+			models:  []string{"Opus 4.6"},
+			wantSub: []string{"💸 $10.00 session (100 reqs, 2h15m)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatSessionEnd(tt.sCost, tt.tCost, tt.reqs, tt.dur, tt.models)
+			for _, sub := range tt.wantSub {
+				if !strings.Contains(result, sub) {
+					t.Errorf("output %q missing substring %q", result, sub)
+				}
+			}
+			for _, sub := range tt.dontWant {
+				if strings.Contains(result, sub) {
+					t.Errorf("output %q should not contain %q", result, sub)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionModels(t *testing.T) {
+	deduped := map[string]*dedupRecord{
+		"req_1": {Model: "claude-opus-4-6", Usage: Usage{InputTokens: 1000, OutputTokens: 500}},
+		"req_2": {Model: "claude-opus-4-6", Usage: Usage{InputTokens: 2000, OutputTokens: 1000}},
+		"req_3": {Model: "claude-haiku-4-5-20251001", Usage: Usage{InputTokens: 500, OutputTokens: 200}},
+	}
+	models := sessionModels(deduped)
+	if len(models) != 2 {
+		t.Fatalf("got %d models, want 2", len(models))
+	}
+	if models[0] != "Opus 4.6" {
+		t.Errorf("models[0] = %q, want Opus 4.6 (highest cost)", models[0])
+	}
+	if models[1] != "Haiku 4.5" {
+		t.Errorf("models[1] = %q, want Haiku 4.5", models[1])
+	}
+}
+
+func TestSessionModelsEmpty(t *testing.T) {
+	models := sessionModels(map[string]*dedupRecord{})
+	if len(models) != 0 {
+		t.Errorf("got %d models for empty deduped, want 0", len(models))
+	}
+}
+
+func TestSessionDuration(t *testing.T) {
+	deduped := map[string]*dedupRecord{
+		"req_1": {Timestamp: time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC)},
+		"req_2": {Timestamp: time.Date(2026, 3, 12, 10, 23, 0, 0, time.UTC)},
+		"req_3": {Timestamp: time.Date(2026, 3, 12, 10, 10, 0, 0, time.UTC)},
+	}
+	dur := sessionDuration(deduped)
+	if dur != 23*time.Minute {
+		t.Errorf("duration = %v, want 23m", dur)
+	}
+}
+
+func TestSessionDurationSingleRequest(t *testing.T) {
+	deduped := map[string]*dedupRecord{
+		"req_1": {Timestamp: time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC)},
+	}
+	dur := sessionDuration(deduped)
+	if dur != 0 {
+		t.Errorf("duration = %v, want 0 for single request", dur)
+	}
+}
+
+func TestSessionDurationZeroTimestamps(t *testing.T) {
+	deduped := map[string]*dedupRecord{
+		"req_1": {Timestamp: time.Time{}},
+		"req_2": {Timestamp: time.Time{}},
+	}
+	dur := sessionDuration(deduped)
+	if dur != 0 {
+		t.Errorf("duration = %v, want 0 for zero timestamps", dur)
+	}
+}
+
+func TestReadSessionEndInput_Valid(t *testing.T) {
+	jsonStr := `{
+		"session_id": "abc123",
+		"transcript_path": "/home/user/.claude/projects/my-project/abc123.jsonl",
+		"cwd": "/home/user/project",
+		"hook_event_name": "SessionEnd",
+		"reason": "prompt_input_exit"
+	}`
+	input, err := readSessionEndInput(strings.NewReader(jsonStr))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if input.TranscriptPath != "/home/user/.claude/projects/my-project/abc123.jsonl" {
+		t.Errorf("TranscriptPath = %q", input.TranscriptPath)
+	}
+	if input.SessionID != "abc123" {
+		t.Errorf("SessionID = %q", input.SessionID)
+	}
+}
+
+func TestReadSessionEndInput_InvalidJSON(t *testing.T) {
+	_, err := readSessionEndInput(strings.NewReader("not json"))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestReadSessionEndInput_Empty(t *testing.T) {
+	_, err := readSessionEndInput(strings.NewReader(""))
+	if err == nil {
+		t.Error("expected error for empty stdin")
 	}
 }

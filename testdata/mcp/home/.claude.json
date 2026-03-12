@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "user-global-notion": { "type": "http", "url": "https://mcp.notion.com/mcp" },
+    "user-global-linear": { "type": "http", "url": "https://mcp.linear.app/sse" }
+  },
+  "projects": {
+    "/Users/alice/myproject": {
+      "mcpServers": {
+        "local-scoped-stripe": { "type": "http", "url": "https://mcp.stripe.com" },
+        "project-sentry": { "type": "http", "url": "https://mcp.sentry.dev/mcp" }
+      },
+      "disabledMcpServers": [ "plugin:slack:slack", "settings-server" ],
+      "disabledMcpjsonServers": [ "project-db" ]
+    }
+  }
+}

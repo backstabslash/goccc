@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "project-db": { "command": "npx", "args": ["-y", "@bytebase/dbhub"] },
+    "project-sentry": { "type": "http", "url": "https://mcp.sentry.dev/mcp" }
+  }
+}

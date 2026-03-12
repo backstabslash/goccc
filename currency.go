@@ -21,9 +21,11 @@ var activeCurrency struct {
 
 // CurrencyConfig represents the persistent config in ~/.goccc.json.
 type CurrencyConfig struct {
-	Currency    string  `json:"currency"`
-	CachedRate  float64 `json:"cached_rate,omitempty"`
-	RateUpdated string  `json:"rate_updated,omitempty"`
+	Currency       string  `json:"currency"`
+	CachedRate     float64 `json:"cached_rate,omitempty"`
+	RateUpdated    string  `json:"rate_updated,omitempty"`
+	WarnThreshold  float64 `json:"warn_threshold,omitempty"`
+	AlertThreshold float64 `json:"alert_threshold,omitempty"`
 }
 
 type currencyInfo struct {
@@ -88,7 +90,7 @@ func symbolForCurrency(code string) (string, bool) {
 	return code, true
 }
 
-func configPath() string {
+var configPath = func() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -154,11 +156,30 @@ func fetchExchangeRate(currency string) (float64, error) {
 	return rate, nil
 }
 
+// initConfig loads config from ~/.goccc.json: thresholds and currency.
+func initConfig(symbolFlag string, rateFlag float64) error {
+	cfgPath := configPath()
+	cfg := loadCurrencyConfig(cfgPath)
+
+	if cfg.WarnThreshold > 0 {
+		costThresholdYellow = cfg.WarnThreshold
+	}
+	if cfg.AlertThreshold > 0 {
+		costThresholdRed = cfg.AlertThreshold
+	}
+	if costThresholdYellow > costThresholdRed {
+		costThresholdYellow, costThresholdRed = costThresholdRed, costThresholdYellow
+	}
+
+	return initCurrency(symbolFlag, rateFlag, cfgPath, &cfg)
+}
+
 // initCurrency resolves currency from CLI flags or config file and sets activeCurrency.
-func initCurrency(symbolFlag string, rateFlag float64) error {
+func initCurrency(symbolFlag string, rateFlag float64, cfgPath string, cfg *CurrencyConfig) error {
 	if (symbolFlag != "") != (rateFlag != 0) {
 		return fmt.Errorf("-currency-symbol and -currency-rate must be used together")
 	}
+
 	if symbolFlag != "" && rateFlag != 0 {
 		if math.IsNaN(rateFlag) || math.IsInf(rateFlag, 0) || rateFlag <= 0 {
 			return fmt.Errorf("-currency-rate must be a positive number")
@@ -167,10 +188,9 @@ func initCurrency(symbolFlag string, rateFlag float64) error {
 		activeCurrency.Rate = rateFlag
 		return nil
 	}
-	cfgPath := configPath()
-	cfg := loadCurrencyConfig(cfgPath)
+
 	if cfg.Currency != "" {
-		sym, suffix, rate := resolveCurrencyRate(&cfg, cfgPath)
+		sym, suffix, rate := resolveCurrencyRate(cfg, cfgPath)
 		activeCurrency.Code = cfg.Currency
 		activeCurrency.Symbol = sym
 		activeCurrency.Suffix = suffix

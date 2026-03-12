@@ -88,6 +88,41 @@ func TestFmtDuration(t *testing.T) {
 	}
 }
 
+func TestColorizeCustomThresholds(t *testing.T) {
+	origNoColor := noColorFlag
+	noColorFlag = false
+	origWarn := costThresholdYellow
+	origAlert := costThresholdRed
+	defer func() {
+		noColorFlag = origNoColor
+		costThresholdYellow = origWarn
+		costThresholdRed = origAlert
+	}()
+
+	costThresholdYellow = 10.0
+	costThresholdRed = 20.0
+
+	if colorize("test", 5.0) != "test" {
+		t.Error("below warn threshold should not colorize")
+	}
+	if colorize("test", 15.0) == "test" {
+		t.Error("between warn and alert should colorize (yellow)")
+	}
+	if colorize("test", 25.0) == "test" {
+		t.Error("above alert should colorize (red)")
+	}
+}
+
+func TestColorizeDefaultThresholds(t *testing.T) {
+	origNoColor := noColorFlag
+	noColorFlag = false
+	defer func() { noColorFlag = origNoColor }()
+
+	if colorize("test", 20.0) != "test" {
+		t.Error("$20 should be plain with default $25 warn threshold")
+	}
+}
+
 func TestTotalCacheWrite(t *testing.T) {
 	b := &Bucket{CacheWrite5m: 100, CacheWrite1h: 200}
 	if got := b.TotalCacheWrite(); got != 300 {

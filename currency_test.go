@@ -8,15 +8,18 @@ import (
 
 func TestLoadCurrencyConfig(t *testing.T) {
 	tests := []struct {
-		name     string
-		content  string
-		wantCurr string
-		wantRate float64
+		name      string
+		content   string
+		wantCurr  string
+		wantRate  float64
+		wantWarn  float64
+		wantAlert float64
 	}{
-		{"valid config", `{"currency":"ZAR","cached_rate":18.5,"rate_updated":"2026-03-05T12:00:00Z"}`, "ZAR", 18.5},
-		{"empty currency", `{"currency":""}`, "", 0},
-		{"invalid json", `{not json}`, "", 0},
-		{"currency only", `{"currency":"EUR"}`, "EUR", 0},
+		{"valid config", `{"currency":"ZAR","cached_rate":18.5,"rate_updated":"2026-03-05T12:00:00Z"}`, "ZAR", 18.5, 0, 0},
+		{"empty currency", `{"currency":""}`, "", 0, 0, 0},
+		{"invalid json", `{not json}`, "", 0, 0, 0},
+		{"currency only", `{"currency":"EUR"}`, "EUR", 0, 0, 0},
+		{"with thresholds", `{"warn_threshold":30,"alert_threshold":75}`, "", 0, 30, 75},
 	}
 
 	for _, tt := range tests {
@@ -32,6 +35,12 @@ func TestLoadCurrencyConfig(t *testing.T) {
 			}
 			if cfg.CachedRate != tt.wantRate {
 				t.Errorf("CachedRate = %f, want %f", cfg.CachedRate, tt.wantRate)
+			}
+			if cfg.WarnThreshold != tt.wantWarn {
+				t.Errorf("WarnThreshold = %f, want %f", cfg.WarnThreshold, tt.wantWarn)
+			}
+			if cfg.AlertThreshold != tt.wantAlert {
+				t.Errorf("AlertThreshold = %f, want %f", cfg.AlertThreshold, tt.wantAlert)
 			}
 		})
 	}
@@ -130,9 +139,11 @@ func TestSaveCurrencyConfig(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 
 	cfg := CurrencyConfig{
-		Currency:    "ZAR",
-		CachedRate:  18.5,
-		RateUpdated: "2026-03-05T12:00:00Z",
+		Currency:       "ZAR",
+		CachedRate:     18.5,
+		RateUpdated:    "2026-03-05T12:00:00Z",
+		WarnThreshold:  30,
+		AlertThreshold: 75,
 	}
 	saveCurrencyConfig(path, cfg)
 
@@ -142,6 +153,12 @@ func TestSaveCurrencyConfig(t *testing.T) {
 	}
 	if loaded.CachedRate != 18.5 {
 		t.Errorf("CachedRate = %f, want 18.5", loaded.CachedRate)
+	}
+	if loaded.WarnThreshold != 30 {
+		t.Errorf("WarnThreshold = %f, want 30", loaded.WarnThreshold)
+	}
+	if loaded.AlertThreshold != 75 {
+		t.Errorf("AlertThreshold = %f, want 75", loaded.AlertThreshold)
 	}
 }
 
@@ -158,6 +175,40 @@ func TestResolveCurrencyRateEmpty(t *testing.T) {
 	sym, _, rate := resolveCurrencyRate(cfg, "")
 	if sym != "$" || rate != 0 {
 		t.Errorf("empty currency should return $, 0; got %q, %f", sym, rate)
+	}
+}
+
+func TestInitConfigSwapsThresholds(t *testing.T) {
+	origWarn := costThresholdYellow
+	origAlert := costThresholdRed
+	origCurrency := activeCurrency
+	defer func() {
+		costThresholdYellow = origWarn
+		costThresholdRed = origAlert
+		activeCurrency = origCurrency
+	}()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".goccc.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"warn_threshold":75,"alert_threshold":30}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origConfigPath := configPath
+	configPath = func() string { return cfgPath }
+	defer func() { configPath = origConfigPath }()
+
+	costThresholdYellow = 25.0
+	costThresholdRed = 50.0
+	if err := initConfig("", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if costThresholdYellow != 30 {
+		t.Errorf("costThresholdYellow = %f, want 30 (swapped)", costThresholdYellow)
+	}
+	if costThresholdRed != 75 {
+		t.Errorf("costThresholdRed = %f, want 75 (swapped)", costThresholdRed)
 	}
 }
 

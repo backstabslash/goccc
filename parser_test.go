@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// makeRecord builds a JSONL line for an assistant message.
-func makeRecord(requestID, model, timestamp string, input, output, cacheRead, cacheWrite5m, cacheWrite1h int) string {
+// makeRecordWithBranch builds a JSONL line for an assistant message with an optional git branch.
+func makeRecordWithBranch(requestID, model, timestamp string, input, output, cacheRead, cacheWrite5m, cacheWrite1h int, gitBranch string) string {
 	type cacheCreation struct {
 		Ephemeral5m int `json:"ephemeral_5m_input_tokens"`
 		Ephemeral1h int `json:"ephemeral_1h_input_tokens"`
@@ -31,6 +31,7 @@ func makeRecord(requestID, model, timestamp string, input, output, cacheRead, ca
 		Type      string  `json:"type"`
 		RequestID string  `json:"requestId"`
 		Timestamp string  `json:"timestamp"`
+		GitBranch string  `json:"gitBranch,omitempty"`
 		Message   message `json:"message"`
 	}
 
@@ -38,25 +39,22 @@ func makeRecord(requestID, model, timestamp string, input, output, cacheRead, ca
 	if cacheWrite5m > 0 || cacheWrite1h > 0 {
 		cc = &cacheCreation{Ephemeral5m: cacheWrite5m, Ephemeral1h: cacheWrite1h}
 	}
-
 	rec := record{
-		Type:      "assistant",
-		RequestID: requestID,
-		Timestamp: timestamp,
-		Message: message{
-			Model: model,
-			Role:  "assistant",
-			Usage: usage{
-				InputTokens:              input,
-				OutputTokens:             output,
-				CacheReadInputTokens:     cacheRead,
-				CacheCreationInputTokens: cacheWrite5m + cacheWrite1h,
-				CacheCreation:            cc,
-			},
-		},
+		Type: "assistant", RequestID: requestID, Timestamp: timestamp, GitBranch: gitBranch,
+		Message: message{Model: model, Role: "assistant", Usage: usage{
+			InputTokens: input, OutputTokens: output,
+			CacheReadInputTokens:     cacheRead,
+			CacheCreationInputTokens: cacheWrite5m + cacheWrite1h,
+			CacheCreation:            cc,
+		}},
 	}
 	b, _ := json.Marshal(rec)
 	return string(b)
+}
+
+// makeRecord builds a JSONL line for an assistant message (no branch).
+func makeRecord(requestID, model, timestamp string, input, output, cacheRead, cacheWrite5m, cacheWrite1h int) string {
+	return makeRecordWithBranch(requestID, model, timestamp, input, output, cacheRead, cacheWrite5m, cacheWrite1h, "")
 }
 
 func makeUserRecord(timestamp string) string {
@@ -580,48 +578,6 @@ func TestResolveProjectSlug(t *testing.T) {
 }
 
 // --- Branch Aggregation ---
-
-func makeRecordWithBranch(requestID, model, timestamp string, input, output, cacheRead, cacheWrite5m, cacheWrite1h int, gitBranch string) string {
-	type cacheCreation struct {
-		Ephemeral5m int `json:"ephemeral_5m_input_tokens"`
-		Ephemeral1h int `json:"ephemeral_1h_input_tokens"`
-	}
-	type usage struct {
-		InputTokens              int            `json:"input_tokens"`
-		OutputTokens             int            `json:"output_tokens"`
-		CacheReadInputTokens     int            `json:"cache_read_input_tokens"`
-		CacheCreationInputTokens int            `json:"cache_creation_input_tokens"`
-		CacheCreation            *cacheCreation `json:"cache_creation,omitempty"`
-	}
-	type message struct {
-		Model string `json:"model"`
-		Role  string `json:"role"`
-		Usage usage  `json:"usage"`
-	}
-	type record struct {
-		Type      string  `json:"type"`
-		RequestID string  `json:"requestId"`
-		Timestamp string  `json:"timestamp"`
-		GitBranch string  `json:"gitBranch,omitempty"`
-		Message   message `json:"message"`
-	}
-
-	var cc *cacheCreation
-	if cacheWrite5m > 0 || cacheWrite1h > 0 {
-		cc = &cacheCreation{Ephemeral5m: cacheWrite5m, Ephemeral1h: cacheWrite1h}
-	}
-	rec := record{
-		Type: "assistant", RequestID: requestID, Timestamp: timestamp, GitBranch: gitBranch,
-		Message: message{Model: model, Role: "assistant", Usage: usage{
-			InputTokens: input, OutputTokens: output,
-			CacheReadInputTokens:     cacheRead,
-			CacheCreationInputTokens: cacheWrite5m + cacheWrite1h,
-			CacheCreation:            cc,
-		}},
-	}
-	b, _ := json.Marshal(rec)
-	return string(b)
-}
 
 func TestBranchAggregation(t *testing.T) {
 	base := setupProject(t, "project-alpha", []string{

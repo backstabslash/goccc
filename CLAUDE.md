@@ -16,13 +16,14 @@ Go 1.26, stdlib only (zero external deps), GoReleaser for cross-platform builds
 ├── pricing.json       # Externalized model pricing data (embedded + fetched from repo)
 ├── format.go          # Terminal and JSON output formatting
 ├── color.go           # ANSI color helpers (custom implementation, no external deps)
-├── statusline.go      # Claude Code statusline mode (reads stdin JSON, outputs formatted cost line)
-├── currency.go        # Currency config (~/.goccc.json), exchange rate fetching/caching, symbol table
+├── statusline.go      # Statusline mode + session exit hook (reads stdin JSON, outputs formatted cost)
+├── currency.go        # Config (~/.goccc.json): currency, exchange rates, cost thresholds
 ├── mcp.go             # MCP server detection, per-project disable filtering, plugin walk
 ├── update.go          # Version update checking and remote pricing cache refresh
 ├── *_test.go          # Table-driven tests for each module
 ├── fixture_test.go    # Integration test against realistic JSONL fixture
-├── testdata/          # Static JSONL fixture (multi-turn convo with subagents)
+├── mcp_fixture_test.go # Integration test against realistic MCP fixture (all sources + disabling)
+├── testdata/          # Static fixtures: JSONL (multi-turn convo with subagents), MCP (home + project layout)
 ├── .goreleaser.yml    # Release config (darwin/linux/windows, amd64/arm64)
 └── README.md          # Usage docs and supported models
 ```
@@ -104,8 +105,9 @@ Independently verified against a Python parser on 272 requests across 11 files (
 - **Shared file parsing** — `parseFile()` in parser.go is used by both `parseLogs` (directory walk) and `parseSession` (statusline single-session)
 - **Local timezone everywhere** — local midnight for cutoffs, `parsed.Local()` for date bucketing. Never use `UTC()` for user-facing date logic
 - **MCP detection is best-effort** — all MCP detection functions return nil/empty on error; statusline never fails due to missing config
-- **MCP sources** — five detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, project-level `.mcp.json` via `cwd` from transcript, `settings.local.json` in project `.claude/`, and per-project `mcpServers` in `~/.claude.json`
-- **Local currency** — `~/.goccc.json` stores currency code, cached rate, and timestamp; exchange rates auto-fetched and cached for 24h. `-currency-symbol` and `-currency-rate` flags override config (both required together). JSON output cost fields always in USD
+- **MCP sources** — six detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, project-level `.mcp.json` via `cwd` from transcript, `settings.local.json` in project `.claude/`, top-level `mcpServers` in `~/.claude.json`, and per-project `mcpServers` in `~/.claude.json`
+- **Config file** — `~/.goccc.json` stores currency code, cached rate, timestamp, and cost thresholds (`warn_threshold`/`alert_threshold`). `initConfig()` loads everything once: thresholds first (with swap-correction if misordered), then currency. Exchange rates auto-fetched and cached for 24h. `-currency-symbol` and `-currency-rate` flags override config (both required together). JSON output cost fields always in USD
+- **Session end hook** — `-session-end` reads `SessionEnd` JSON from stdin, parses the session transcript, and outputs a one-line cost summary. Uses `os.Exit(2)` + ANSI escape to overwrite Claude Code's "hook failed" prefix. Silently exits on any error — never breaks session teardown
 
 ## Don't
 

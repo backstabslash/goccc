@@ -49,28 +49,29 @@ type jsonRecord struct {
 }
 
 type dedupRecord struct {
-	Model   string
-	Project string
-	Date    string
-	Branch  string
-	Usage   Usage
+	Model     string
+	Project   string
+	Date      string
+	Branch    string
+	Usage     Usage
+	Timestamp time.Time
 }
 
-func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr string, skip bool, parseErr bool) {
+func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr string, ts time.Time, skip bool, parseErr bool) {
 	if timestamp == "" {
 		if hasCutoff {
-			return "", true, false
+			return "", time.Time{}, true, false
 		}
-		return "unknown", false, false
+		return "unknown", time.Time{}, false, false
 	}
 	parsed, err := time.Parse(time.RFC3339, timestamp)
 	if err != nil {
-		return "unknown", false, true
+		return "unknown", time.Time{}, false, true
 	}
 	if hasCutoff && parsed.Before(cutoff) {
-		return "", true, false
+		return "", time.Time{}, true, false
 	}
-	return parsed.Local().Format("2006-01-02"), false, false
+	return parsed.Local().Format("2006-01-02"), parsed, false, false
 }
 
 func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord) (rawCount, parseErrs int, fileErr error) {
@@ -104,7 +105,7 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
-		dateStr, skip, pErr := parseDateStr(rec.Timestamp, cutoff, hasCutoff)
+		dateStr, ts, skip, pErr := parseDateStr(rec.Timestamp, cutoff, hasCutoff)
 		if pErr {
 			parseErrs++
 		}
@@ -126,11 +127,12 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 		}
 
 		deduped[requestID] = &dedupRecord{
-			Model:   rec.Message.Model,
-			Project: projectSlug,
-			Date:    dateStr,
-			Branch:  branch,
-			Usage:   usage,
+			Model:     rec.Message.Model,
+			Project:   projectSlug,
+			Date:      dateStr,
+			Branch:    branch,
+			Usage:     usage,
+			Timestamp: ts,
 		}
 	}
 	if err := scanner.Err(); err != nil {

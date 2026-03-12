@@ -42,13 +42,17 @@ func detectMCPs(claudeDir string, transcriptPath string) []string {
 	}
 
 	claudeJSONPath := filepath.Join(filepath.Dir(claudeDir), ".claude.json")
-	projects := readClaudeProjects(claudeJSONPath)
+	cj := readClaudeJSON(claudeJSONPath)
+
+	for name := range cj.MCPServers {
+		allNames = append(allNames, name)
+	}
 
 	projectPath := cwd
 	if projectPath == "" {
-		projectPath = projectPathFromSlug(projects, transcriptPath)
+		projectPath = projectPathFromSlug(cj.Projects, transcriptPath)
 	}
-	projCfg := findProject(projects, projectPath)
+	projCfg := findProject(cj.Projects, projectPath)
 	for name := range projCfg.MCPServers {
 		allNames = append(allNames, name)
 	}
@@ -84,18 +88,21 @@ func readSettings(path string) claudeSettings {
 	return s
 }
 
-func readClaudeProjects(claudeJSONPath string) map[string]claudeProjectConfig {
+type claudeJSON struct {
+	MCPServers map[string]json.RawMessage     `json:"mcpServers"`
+	Projects   map[string]claudeProjectConfig `json:"projects"`
+}
+
+func readClaudeJSON(claudeJSONPath string) claudeJSON {
 	data, err := os.ReadFile(claudeJSONPath)
 	if err != nil {
-		return nil
+		return claudeJSON{}
 	}
-	var config struct {
-		Projects map[string]claudeProjectConfig `json:"projects"`
-	}
+	var config claudeJSON
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil
+		return claudeJSON{}
 	}
-	return config.Projects
+	return config
 }
 
 func parseEnabledPluginMCPs(enabledPlugins map[string]bool, pluginsDir string) []string {

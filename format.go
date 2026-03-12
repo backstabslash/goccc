@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const (
+var (
 	costThresholdRed    = 50.0
 	costThresholdYellow = 25.0
 )

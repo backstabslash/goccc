@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -148,4 +149,132 @@ func runStatusline(baseDir string, noMCP bool) {
 		mcpNames = detectMCPs(baseDir, input.TranscriptPath)
 	}
 	fmt.Print(formatStatusline(sCost, tCost, input, mcpNames))
+}
+
+type SessionEndInput struct {
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
+	Cwd            string `json:"cwd"`
+	HookEventName  string `json:"hook_event_name"`
+	Reason         string `json:"reason"`
+}
+
+func readSessionEndInput(r io.Reader) (*SessionEndInput, error) {
+	var input SessionEndInput
+	if err := json.NewDecoder(r).Decode(&input); err != nil {
+		return nil, fmt.Errorf("reading stdin: %w", err)
+	}
+	return &input, nil
+}
+
+func sessionModels(deduped map[string]*dedupRecord) []string {
+	costByModel := make(map[string]float64)
+	for _, r := range deduped {
+		costByModel[r.Model] += calcCost(r.Model, r.Usage)
+	}
+	type mc struct {
+		name string
+		cost float64
+	}
+	var models []mc
+	for model, cost := range costByModel {
+		models = append(models, mc{shortModel(model), cost})
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].cost > models[j].cost })
+	result := make([]string, len(models))
+	for i, m := range models {
+		result[i] = m.name
+	}
+	return result
+}
+
+func sessionDuration(deduped map[string]*dedupRecord) time.Duration {
+	var earliest, latest time.Time
+	for _, r := range deduped {
+		if r.Timestamp.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || r.Timestamp.Before(earliest) {
+			earliest = r.Timestamp
+		}
+		if latest.IsZero() || r.Timestamp.After(latest) {
+			latest = r.Timestamp
+		}
+	}
+	if earliest.IsZero() || latest.IsZero() {
+		return 0
+	}
+	return latest.Sub(earliest)
+}
+
+func fmtSessionDuration(d time.Duration) string {
+	if d < time.Minute {
+		return "<1m"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 {
+		if m == 0 {
+			return fmt.Sprintf("%dh", h)
+		}
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
+func formatSessionEnd(sCost, tCost float64, reqs int, dur time.Duration, models []string) string {
+	var parts []string
+
+	reqLabel := "reqs"
+	if reqs == 1 {
+		reqLabel = "req"
+	}
+	parts = append(parts, fmt.Sprintf("💸 %s session (%d %s, %s)",
+		colorCost(sCost, 0), reqs, reqLabel, fmtSessionDuration(dur)))
+
+	if tCost-sCost > 0.001 {
+		parts = append(parts, "💰 "+colorCost(tCost, 0)+" today")
+	}
+
+	if len(models) > 0 {
+		parts = append(parts, "🤖 "+strings.Join(models, ", "))
+	}
+
+	return strings.Join(parts, " · ")
+}
+
+func runSessionEnd(baseDir string) {
+	input, err := readSessionEndInput(os.Stdin)
+	if err != nil {
+		return
+	}
+
+	if input.TranscriptPath == "" {
+		return
+	}
+
+	deduped, err := parseSession(input.TranscriptPath)
+	if err != nil {
+		return
+	}
+
+	reqs := len(deduped)
+	if reqs == 0 {
+		return
+	}
+
+	sCost := sessionCost(deduped)
+	dur := sessionDuration(deduped)
+	models := sessionModels(deduped)
+
+	var tCost float64
+	if todayData, err := parseLogs(baseDir, 1, ""); err == nil {
+		tCost = todayData.Totals().Cost
+	}
+
+	line := formatSessionEnd(sCost, tCost, reqs, dur, models)
+	// ANSI: erase line + carriage return to overwrite Claude Code's
+	// "SessionEnd hook [...] failed: " prefix before our content.
+	fmt.Fprintf(os.Stderr, "\x1b[2K\r\n%s", line)
+	os.Exit(2)
 }

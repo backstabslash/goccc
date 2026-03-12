@@ -2,9 +2,7 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestNormalizeVersion(t *testing.T) {
@@ -85,22 +83,5 @@ func TestPrintUpdateNoticeShownForRelease(t *testing.T) {
 	n, _ := r.Read(buf)
 	if n == 0 {
 		t.Error("expected update notice output for release version")
-	}
-}
-
-func TestCacheReadFresh(t *testing.T) {
-	cacheDir := t.TempDir()
-	cacheFile := filepath.Join(cacheDir, "goccc", "latest-version")
-	_ = os.MkdirAll(filepath.Dir(cacheFile), 0o755)
-
-	content := time.Now().Format(time.RFC3339) + "\nv2.0.0\n"
-	_ = os.WriteFile(cacheFile, []byte(content), 0o644)
-
-	data, err := os.ReadFile(cacheFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != content {
-		t.Errorf("cache content mismatch")
 	}
 }

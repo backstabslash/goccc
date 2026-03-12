@@ -1,0 +1,2 @@
+{"type":"user","cwd":"/Users/alice/myproject","message":{"role":"user","content":"hello"}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-opus-4-6","content":"hi"}}
