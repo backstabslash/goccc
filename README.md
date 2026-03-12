@@ -27,23 +27,23 @@ Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, 
 brew install backstabslash/tap/goccc
 ```
 
-### Alternatives
-
-**Go install** (requires Go):
+### Go install
 
 ```bash
 go install github.com/backstabslash/goccc@latest
 ```
 
-**From source:**
+### Pre-built binaries
+
+Available on the [releases page](https://github.com/backstabslash/goccc/releases/latest) for macOS, Linux, and Windows (amd64 / arm64).
+
+### From source
 
 ```bash
 git clone https://github.com/backstabslash/goccc.git && cd goccc
 go build -o goccc .     # macOS / Linux
 go build -o goccc.exe . # Windows
 ```
-
-**Pre-built binaries** are available on the [releases page](https://github.com/backstabslash/goccc/releases/latest) for macOS, Linux, and Windows (amd64 / arm64).
 
 ## Usage
 
