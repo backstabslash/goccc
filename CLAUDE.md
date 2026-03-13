@@ -91,10 +91,6 @@ One API call produces multiple JSONL entries sharing the same `requestId`. `inpu
 - `model: "<synthetic>"` + `isApiErrorMessage: true` — rate-limit/error placeholders with all-zero tokens. Filtered out to avoid inflating request counts.
 - `isSidechain: true` — present on subagent entries. Informational only; we process all assistant entries regardless.
 
-### Validated accuracy
-
-Independently verified against a Python parser on 272 requests across 11 files (main + subagent). All token counts, dedup stats, and costs match exactly to 6 decimal places.
-
 ## Conventions
 
 - **Flat package structure** — all code in `package main`, one concern per file
