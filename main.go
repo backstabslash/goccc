@@ -56,7 +56,6 @@ func main() {
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 	sessionEnd := flag.Bool("session-end", false, "Session end hook mode: read SessionEnd JSON from stdin, print cost summary")
 	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
-	cache5m := flag.Bool("cache-5m", false, "Price cache writes at 5-minute tier (1.25x) instead of 1-hour (2x)")
 	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
 	currencyRateFlag := flag.Float64("currency-rate", 0, "Override exchange rate from USD (requires -currency-symbol)")
 
@@ -91,10 +90,6 @@ func main() {
 
 	if *noColor {
 		noColorFlag = true
-	}
-
-	if *cache5m {
-		cacheWriteAs1h = false
 	}
 
 	if err := initConfig(*currencySymbolFlag, *currencyRateFlag); err != nil {

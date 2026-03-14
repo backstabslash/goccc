@@ -308,9 +308,9 @@ func TestParseSession_Fixture(t *testing.T) {
 	}
 
 	cost := sessionCost(deduped)
-	// Opus: 1.286 + Haiku: 0.061 = 1.347 (all cache writes priced as 1h)
-	if math.Abs(cost-1.347) > 0.000001 {
-		t.Errorf("sessionCost = %.6f, want 1.347000", cost)
+	// Opus: 1.2485 + Haiku: 0.057625 = 1.306125
+	if math.Abs(cost-1.306125) > 0.000001 {
+		t.Errorf("sessionCost = %.6f, want 1.306125", cost)
 	}
 }
 

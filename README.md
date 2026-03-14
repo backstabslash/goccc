@@ -18,7 +18,6 @@ Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, 
 - [Session Exit Hook](#session-exit-hook)
 - [Configuration](#configuration)
 - [Flags](#flags)
-- [How It Works](#how-it-works)
 - [Preserving Log History](#preserving-log-history)
 
 ## Installation
@@ -58,7 +57,6 @@ goccc -projects                    # Project breakdown only
 goccc -project webapp -daily       # Filter by project name (substring match)
 goccc -days 1                      # Today's usage
 goccc -projects -top 5             # Top 5 most expensive projects
-goccc -cache-5m                    # Use 5-minute cache pricing instead of 1-hour
 goccc -days 30 -all -json          # JSON output for scripting
 goccc -json | jq '.summary.total_cost'  # Pipe to jq for custom analysis
 goccc -currency-symbol "€" -currency-rate 0.92  # One-off currency override
@@ -187,7 +185,6 @@ Thresholds are in USD (before currency conversion). They apply to the terminal o
 | `-projects` | | `false` | Show per-project breakdown |
 | `-all` | | `false` | Show all breakdowns (daily + projects) |
 | `-top` | `-n` | `0` | Max entries in breakdowns (0 = all) |
-| `-cache-5m` | | `false` | Price cache writes at 5-minute tier (1.25x input) instead of 1-hour (2x) |
 | `-json` | | `false` | Output as JSON |
 | `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
@@ -197,14 +194,6 @@ Thresholds are in USD (before currency conversion). They apply to the terminal o
 | `-currency-symbol` | | | Override currency symbol (requires `-currency-rate`) |
 | `-currency-rate` | | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
 | `-version` | `-V` | | Print version and exit |
-
-## How It Works
-
-goccc parses Claude Code's JSONL conversation logs from `~/.claude/projects/`, deduplicates streaming responses (by `requestId`), and calculates costs using [Anthropic's published pricing](https://platform.claude.com/docs/en/about-claude/pricing) — including cache write tiers, long-context premiums (>200K input), and web search costs.
-
-### Cache Write Pricing
-
-Claude Code JSONL logs report all cache writes as `ephemeral_5m`, but Anthropic billing matches 1-hour tier pricing (2x input price). goccc defaults to 1-hour pricing to align with actual bills. Use `-cache-5m` to switch to 5-minute pricing (1.25x input) if your billing differs.
 
 ## Preserving Log History
 

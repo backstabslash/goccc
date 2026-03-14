@@ -302,9 +302,6 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	if data.ParseErrors > 0 {
 		dim.Printf("  (%d parse errors skipped)\n", data.ParseErrors)
 	}
-	if cacheWriteAs1h {
-		dim.Println("  Cache writes priced at 1h tier (2x input); use -cache-5m for 1.25x")
-	}
 	if activeCurrency.Rate > 0 {
 		if activeCurrency.Code != "" {
 			dim.Printf("  Costs in %s (1 USD = %.4f %s)\n", activeCurrency.Code, activeCurrency.Rate, activeCurrency.Code)
@@ -349,7 +346,7 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 		dim.Printf("  Web searches: %d (%s)\n", totals.WebSearches, fmtCost(float64(totals.WebSearches)*webSearchCostPerSearch))
 	}
 	if totals.LongCtxRequests > 0 {
-		dim.Printf("  Long-context requests (>200K): %d (premium pricing applied)\n", totals.LongCtxRequests)
+		dim.Printf("  Long-context requests (>%dK): %d (premium pricing applied)\n", longCtxThreshold/1000, totals.LongCtxRequests)
 	}
 	fmt.Println()
 

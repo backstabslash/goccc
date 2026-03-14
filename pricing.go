@@ -10,36 +10,29 @@ import (
 	"strings"
 )
 
-const (
-	longCtxThreshold       = 200_000
-	webSearchCostPerSearch = 0.01
-)
-
-var cacheWriteAs1h = true
-
 type ModelPricing struct {
-	Input         float64 `json:"input"`
-	Output        float64 `json:"output"`
-	LongCtxInput  float64 `json:"long_ctx_input,omitempty"`
-	LongCtxOutput float64 `json:"long_ctx_output,omitempty"`
+	Input           float64 `json:"input"`
+	Output          float64 `json:"output"`
+	CacheRead       float64 `json:"cache_read,omitempty"`
+	CacheWrite5m    float64 `json:"cache_write_5m,omitempty"`
+	CacheWrite1h    float64 `json:"cache_write_1h,omitempty"`
+	LongCtxInput    float64 `json:"long_ctx_input,omitempty"`
+	LongCtxOutput   float64 `json:"long_ctx_output,omitempty"`
+	LongCtxCacheRead    float64 `json:"long_ctx_cache_read,omitempty"`
+	LongCtxCacheWrite5m float64 `json:"long_ctx_cache_write_5m,omitempty"`
+	LongCtxCacheWrite1h float64 `json:"long_ctx_cache_write_1h,omitempty"`
 }
-
-func (p ModelPricing) CacheWrite5m() float64 { return p.Input * 1.25 }
-func (p ModelPricing) CacheWrite1h() float64 { return p.Input * 2.0 }
-func (p ModelPricing) CacheRead() float64    { return p.Input * 0.1 }
-
-func (p ModelPricing) LongCtxCacheWrite5m() float64 { return p.LongCtxInput * 1.25 }
-func (p ModelPricing) LongCtxCacheWrite1h() float64 { return p.LongCtxInput * 2.0 }
-func (p ModelPricing) LongCtxCacheRead() float64    { return p.LongCtxInput * 0.1 }
 
 //go:embed pricing.json
 var embeddedPricingJSON []byte
 
 type PricingData struct {
-	Models       map[string]ModelPricing `json:"models"`
-	Families     []PricingFamily         `json:"families"`
-	DefaultModel string                  `json:"default_model"`
-	DisplayNames []PricingDisplayName    `json:"display_names"`
+	Models               map[string]ModelPricing `json:"models"`
+	Families             []PricingFamily         `json:"families"`
+	DefaultModel         string                  `json:"default_model"`
+	DisplayNames         []PricingDisplayName    `json:"display_names"`
+	LongContextThreshold int                     `json:"long_context_threshold,omitempty"`
+	WebSearchCost        float64                 `json:"web_search_cost,omitempty"`
 }
 
 type PricingFamily struct {
@@ -53,10 +46,12 @@ type PricingDisplayName struct {
 }
 
 var (
-	pricingTable   map[string]ModelPricing
-	familyPrefixes []PricingFamily
-	defaultPricing ModelPricing
-	displayNames   []PricingDisplayName
+	pricingTable          map[string]ModelPricing
+	familyPrefixes        []PricingFamily
+	defaultPricing        ModelPricing
+	displayNames          []PricingDisplayName
+	longCtxThreshold      = 200_000
+	webSearchCostPerSearch = 0.01
 )
 
 var pricingCachePath = func() string {
@@ -78,8 +73,33 @@ func loadPricingFrom(data []byte) (*PricingData, error) {
 	return &pd, nil
 }
 
+func fillCacheDefaults(p *ModelPricing) {
+	if p.CacheRead == 0 && p.Input > 0 {
+		p.CacheRead = p.Input * 0.1
+	}
+	if p.CacheWrite5m == 0 && p.Input > 0 {
+		p.CacheWrite5m = p.Input * 1.25
+	}
+	if p.CacheWrite1h == 0 && p.Input > 0 {
+		p.CacheWrite1h = p.Input * 2.0
+	}
+	if p.LongCtxCacheRead == 0 && p.LongCtxInput > 0 {
+		p.LongCtxCacheRead = p.LongCtxInput * 0.1
+	}
+	if p.LongCtxCacheWrite5m == 0 && p.LongCtxInput > 0 {
+		p.LongCtxCacheWrite5m = p.LongCtxInput * 1.25
+	}
+	if p.LongCtxCacheWrite1h == 0 && p.LongCtxInput > 0 {
+		p.LongCtxCacheWrite1h = p.LongCtxInput * 2.0
+	}
+}
+
 func applyPricing(pd *PricingData) {
 	pricingTable = pd.Models
+	for k, p := range pricingTable {
+		fillCacheDefaults(&p)
+		pricingTable[k] = p
+	}
 	familyPrefixes = pd.Families
 	sort.Slice(familyPrefixes, func(i, j int) bool {
 		return len(familyPrefixes[i].Prefix) > len(familyPrefixes[j].Prefix)
@@ -90,6 +110,12 @@ func applyPricing(pd *PricingData) {
 	})
 	if p, ok := pricingTable[pd.DefaultModel]; ok {
 		defaultPricing = p
+	}
+	if pd.LongContextThreshold > 0 {
+		longCtxThreshold = pd.LongContextThreshold
+	}
+	if pd.WebSearchCost > 0 {
+		webSearchCostPerSearch = pd.WebSearchCost
 	}
 }
 
@@ -160,12 +186,9 @@ func (u Usage) CacheWriteTokens() (cache5m, cache1h int) {
 		cache5m = u.CacheCreation.Ephemeral5mInputTokens
 		cache1h = u.CacheCreation.Ephemeral1hInputTokens
 	}
+	// Fallback for old logs without cache_creation sub-object: default to 1h
 	if cache5m == 0 && cache1h == 0 && u.CacheCreationInputTokens > 0 {
-		cache5m = u.CacheCreationInputTokens
-	}
-	if cacheWriteAs1h {
-		cache1h += cache5m
-		cache5m = 0
+		cache1h = u.CacheCreationInputTokens
 	}
 	return
 }
@@ -187,15 +210,15 @@ func calcCostResult(model string, usage Usage) CostResult {
 	if longCtx {
 		tokenCost = (float64(usage.InputTokens)/mtok)*p.LongCtxInput +
 			(float64(usage.OutputTokens)/mtok)*p.LongCtxOutput +
-			(float64(cache5m)/mtok)*p.LongCtxCacheWrite5m() +
-			(float64(cache1h)/mtok)*p.LongCtxCacheWrite1h() +
-			(float64(usage.CacheReadInputTokens)/mtok)*p.LongCtxCacheRead()
+			(float64(cache5m)/mtok)*p.LongCtxCacheWrite5m +
+			(float64(cache1h)/mtok)*p.LongCtxCacheWrite1h +
+			(float64(usage.CacheReadInputTokens)/mtok)*p.LongCtxCacheRead
 	} else {
 		tokenCost = (float64(usage.InputTokens)/mtok)*p.Input +
 			(float64(usage.OutputTokens)/mtok)*p.Output +
-			(float64(cache5m)/mtok)*p.CacheWrite5m() +
-			(float64(cache1h)/mtok)*p.CacheWrite1h() +
-			(float64(usage.CacheReadInputTokens)/mtok)*p.CacheRead()
+			(float64(cache5m)/mtok)*p.CacheWrite5m +
+			(float64(cache1h)/mtok)*p.CacheWrite1h +
+			(float64(usage.CacheReadInputTokens)/mtok)*p.CacheRead
 	}
 
 	ws := usage.WebSearches()

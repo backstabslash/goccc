@@ -443,12 +443,12 @@ func TestCacheTokenAggregation(t *testing.T) {
 	if opus.CacheRead != 800 {
 		t.Errorf("expected cache_read=800, got %d", opus.CacheRead)
 	}
-	// All cache writes treated as 1h (default): 5m(200+0)→1h, plus original 1h(100+150)
-	if opus.CacheWrite5m != 0 {
-		t.Errorf("expected cache_write_5m=0 (all promoted to 1h), got %d", opus.CacheWrite5m)
+	// req_1: 5m=200, 1h=100; req_2: 5m=0, 1h=150
+	if opus.CacheWrite5m != 200 {
+		t.Errorf("expected cache_write_5m=200, got %d", opus.CacheWrite5m)
 	}
-	if opus.CacheWrite1h != 450 {
-		t.Errorf("expected cache_write_1h=450, got %d", opus.CacheWrite1h)
+	if opus.CacheWrite1h != 250 {
+		t.Errorf("expected cache_write_1h=250, got %d", opus.CacheWrite1h)
 	}
 	if opus.TotalCacheWrite() != 450 {
 		t.Errorf("expected total_cache_write=450, got %d", opus.TotalCacheWrite())
@@ -456,7 +456,7 @@ func TestCacheTokenAggregation(t *testing.T) {
 }
 
 func TestCacheTokenFallback_FlatField(t *testing.T) {
-	// When cache_creation is nil, cache_creation_input_tokens falls back to 5m
+	// When cache_creation is nil, cache_creation_input_tokens defaults to 1h
 	line := `{"type":"assistant","requestId":"req_flat","timestamp":` +
 		fmt.Sprintf("%q", ts(0, 10)) +
 		`,"message":{"model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":500}}}`
@@ -467,9 +467,8 @@ func TestCacheTokenFallback_FlatField(t *testing.T) {
 		t.Fatal(err)
 	}
 	opus := data.ModelUsage["claude-opus-4-6"]
-	// Flat fallback → 5m → promoted to 1h (default)
 	if opus.CacheWrite5m != 0 {
-		t.Errorf("expected cache_write_5m=0 (promoted to 1h), got %d", opus.CacheWrite5m)
+		t.Errorf("expected cache_write_5m=0, got %d", opus.CacheWrite5m)
 	}
 	if opus.CacheWrite1h != 500 {
 		t.Errorf("expected cache_write_1h=500, got %d", opus.CacheWrite1h)

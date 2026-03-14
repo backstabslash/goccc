@@ -95,9 +95,9 @@ One API call produces multiple JSONL entries sharing the same `requestId`. `inpu
 
 - **Flat package structure** — all code in `package main`, one concern per file
 - **Dedup by requestId** — streaming duplicates collapsed by keeping the last entry per `requestId` in a map
-- **Externalized pricing** — all model pricing, family prefixes, display names, and default model live in `pricing.json`. Embedded via `//go:embed`, with a remote-cached copy fetched from the repo every 24h. `initPricing()` prefers cached over embedded. Adding a new model requires only editing `pricing.json` — no code changes or binary release needed
+- **Externalized pricing** — all model pricing (input, output, cache read/write tiers, long context), global settings (long context threshold, web search cost), family prefixes, display names, and default model live in `pricing.json`. Embedded via `//go:embed`, with a remote-cached copy fetched from the repo every 24h. `initPricing()` prefers cached over embedded. Adding a new model or adjusting pricing requires only editing `pricing.json` — no code changes or binary release needed. Cache fields in JSON are optional — `fillCacheDefaults()` derives them from input price using standard multipliers (0.1x read, 1.25x write-5m, 2x write-1h) when absent
 - **Pricing resolution** — exact model ID → longest family prefix match → `defaultPricing`
-- **Cache write pricing defaults to 1h** — Claude Code JSONL logs report all cache writes as `ephemeral_5m`, but Anthropic billing matches 1-hour tier pricing (2x input). Override with `-cache-5m`. `CacheWrite5m`/`CacheWrite1h` remain separate fields (different pricing multipliers)
+- **Cache write tiers are trusted from JSONL** — Claude Code now correctly reports `ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens` per model (e.g. Haiku → 5m, Opus/Sonnet → 1h). Fallback for old logs without `cache_creation` sub-object defaults to 1h. `CacheWrite5m`/`CacheWrite1h` remain separate fields (different pricing multipliers)
 - **Shared file parsing** — `parseFile()` in parser.go is used by both `parseLogs` (directory walk) and `parseSession` (statusline single-session)
 - **Local timezone everywhere** — local midnight for cutoffs, `parsed.Local()` for date bucketing. Never use `UTC()` for user-facing date logic
 - **MCP detection is best-effort** — all MCP detection functions return nil/empty on error; statusline never fails due to missing config
@@ -107,7 +107,7 @@ One API call produces multiple JSONL entries sharing the same `requestId`. `inpu
 
 ## Don't
 
-- Don't add new model pricing by editing Go code — update `pricing.json` instead (models, families, and display_names sections)
+- Don't add or change pricing by editing Go code — update `pricing.json` instead (models, families, display_names, long_context_threshold, web_search_cost)
 - Don't use `log.Fatal` or `panic` — use `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)`
 - Don't use UTC for day boundaries — use `time.Date(...)` with `now.Location()` for local midnight
 - Don't add JSON tags to `Bucket` — it's never directly marshalled; `printJSON` defines its own output structs

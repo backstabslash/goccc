@@ -46,7 +46,7 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	//   req_main_001: in=15000  out=2500  cr=50000  cw5m=8000  cw1h=3000
 	//   req_main_002: in=22000  out=4800  cr=62000  cw5m=0     cw1h=5000
 	//   req_main_003: in=30000  out=6200  cr=70000  cw5m=2000  cw1h=0
-	//   req_main_004: in=35000  out=3500  cr=80000  cw5m=4000  cw1h=0     (flat fallback)
+	//   req_main_004: in=35000  out=3500  cr=80000  cw5m=0     cw1h=4000  (flat fallback → 1h)
 
 	opus := data.ModelUsage["claude-opus-4-6"]
 	if opus == nil {
@@ -56,17 +56,17 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	assertInt(t, "opus.InputTokens", opus.InputTokens, 102000)
 	assertInt(t, "opus.OutputTokens", opus.OutputTokens, 17000)
 	assertInt(t, "opus.CacheRead", opus.CacheRead, 262000)
-	assertInt(t, "opus.CacheWrite5m", opus.CacheWrite5m, 0)
-	assertInt(t, "opus.CacheWrite1h", opus.CacheWrite1h, 22000)
+	assertInt(t, "opus.CacheWrite5m", opus.CacheWrite5m, 10000)
+	assertInt(t, "opus.CacheWrite1h", opus.CacheWrite1h, 12000)
 
 	// Opus cost per request (pricing: Input=$5/M, Output=$25/M,
-	//   CacheWrite1h=$10/M, CacheRead=$0.50/M — all writes treated as 1h):
-	//   req_main_001: 0.075 + 0.0625  + 0.11   + 0.025  = 0.2725
-	//   req_main_002: 0.11  + 0.12    + 0.05   + 0.031  = 0.311
-	//   req_main_003: 0.15  + 0.155   + 0.02   + 0.035  = 0.36
-	//   req_main_004: 0.175 + 0.0875  + 0.04   + 0.04   = 0.3425
-	//   Total: 1.286
-	assertCost(t, "opus.Cost", opus.Cost, 1.286)
+	//   CacheWrite5m=$6.25/M, CacheWrite1h=$10/M, CacheRead=$0.50/M):
+	//   req_main_001: 0.075  + 0.0625 + 0.05   + 0.03  + 0.025  = 0.2425
+	//   req_main_002: 0.11   + 0.12   + 0      + 0.05  + 0.031  = 0.311
+	//   req_main_003: 0.15   + 0.155  + 0.0125 + 0     + 0.035  = 0.3525
+	//   req_main_004: 0.175  + 0.0875 + 0      + 0.04  + 0.04   = 0.3425 (flat fallback → 1h)
+	//   Total: 1.2485
+	assertCost(t, "opus.Cost", opus.Cost, 1.2485)
 
 	// --- Haiku 4.5 model bucket ---
 	// Final values after dedup:
@@ -82,16 +82,16 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	assertInt(t, "haiku.InputTokens", haiku.InputTokens, 19000)
 	assertInt(t, "haiku.OutputTokens", haiku.OutputTokens, 4900)
 	assertInt(t, "haiku.CacheRead", haiku.CacheRead, 45000)
-	assertInt(t, "haiku.CacheWrite5m", haiku.CacheWrite5m, 0)
-	assertInt(t, "haiku.CacheWrite1h", haiku.CacheWrite1h, 6500)
+	assertInt(t, "haiku.CacheWrite5m", haiku.CacheWrite5m, 4500)
+	assertInt(t, "haiku.CacheWrite1h", haiku.CacheWrite1h, 2000)
 
 	// Haiku cost per request (pricing: Input=$1/M, Output=$5/M,
-	//   CacheWrite1h=$2/M, CacheRead=$0.10/M — all writes treated as 1h):
-	//   req_sub_001: 0.005  + 0.006  + 0.006  + 0.0012 = 0.0182
-	//   req_sub_002: 0.008  + 0.014  + 0.004  + 0.0015 = 0.0275
-	//   req_sub_003: 0.006  + 0.0045 + 0.003  + 0.0018 = 0.0153
-	//   Total: 0.061
-	assertCost(t, "haiku.Cost", haiku.Cost, 0.061)
+	//   CacheWrite5m=$1.25/M, CacheWrite1h=$2/M, CacheRead=$0.10/M):
+	//   req_sub_001: 0.005 + 0.006 + 0.00375 + 0      + 0.0012 = 0.01595
+	//   req_sub_002: 0.008 + 0.014 + 0       + 0.004  + 0.0015 = 0.0275
+	//   req_sub_003: 0.006 + 0.0045+ 0.001875+ 0      + 0.0018 = 0.014175
+	//   Total: 0.057625
+	assertCost(t, "haiku.Cost", haiku.Cost, 0.057625)
 
 	// --- No other models should exist ---
 	if len(data.ModelUsage) != 2 {
@@ -108,8 +108,8 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	if day18opus := day18["claude-opus-4-6"]; day18opus != nil {
 		assertInt(t, "day18.opus.Requests", day18opus.Requests, 2)
 		assertInt(t, "day18.opus.InputTokens", day18opus.InputTokens, 37000)
-		// req_main_001 (0.2725) + req_main_002 (0.311)
-		assertCost(t, "day18.opus.Cost", day18opus.Cost, 0.5835)
+		// req_main_001 (0.2425) + req_main_002 (0.311)
+		assertCost(t, "day18.opus.Cost", day18opus.Cost, 0.5535)
 	} else {
 		t.Error("missing opus bucket for 2026-02-18")
 	}
@@ -121,14 +121,14 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	}
 	if day19opus := day19["claude-opus-4-6"]; day19opus != nil {
 		assertInt(t, "day19.opus.Requests", day19opus.Requests, 2)
-		// req_main_003 (0.36) + req_main_004 (0.3425)
-		assertCost(t, "day19.opus.Cost", day19opus.Cost, 0.7025)
+		// req_main_003 (0.3525) + req_main_004 (0.3425)
+		assertCost(t, "day19.opus.Cost", day19opus.Cost, 0.695)
 	} else {
 		t.Error("missing opus bucket for 2026-02-19")
 	}
 	if day19haiku := day19["claude-haiku-4-5-20251001"]; day19haiku != nil {
 		assertInt(t, "day19.haiku.Requests", day19haiku.Requests, 3)
-		assertCost(t, "day19.haiku.Cost", day19haiku.Cost, 0.061)
+		assertCost(t, "day19.haiku.Cost", day19haiku.Cost, 0.057625)
 	} else {
 		t.Error("missing haiku bucket for 2026-02-19")
 	}
@@ -142,8 +142,8 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	if len(proj) != 2 {
 		t.Errorf("project has %d models, want 2", len(proj))
 	}
-	assertCost(t, "project.opus.Cost", proj["claude-opus-4-6"].Cost, 1.286)
-	assertCost(t, "project.haiku.Cost", proj["claude-haiku-4-5-20251001"].Cost, 0.061)
+	assertCost(t, "project.opus.Cost", proj["claude-opus-4-6"].Cost, 1.2485)
+	assertCost(t, "project.haiku.Cost", proj["claude-haiku-4-5-20251001"].Cost, 0.057625)
 
 	// --- Branch aggregation ---
 	// All fixture entries have gitBranch:"main"
@@ -158,8 +158,8 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	if len(mainBranch) != 2 {
 		t.Errorf("expected 2 models in main branch, got %d", len(mainBranch))
 	}
-	assertCost(t, "branch.main.opus.Cost", mainBranch["claude-opus-4-6"].Cost, 1.286)
-	assertCost(t, "branch.main.haiku.Cost", mainBranch["claude-haiku-4-5-20251001"].Cost, 0.061)
+	assertCost(t, "branch.main.opus.Cost", mainBranch["claude-opus-4-6"].Cost, 1.2485)
+	assertCost(t, "branch.main.haiku.Cost", mainBranch["claude-haiku-4-5-20251001"].Cost, 0.057625)
 }
 
 func TestFixture_SyntheticEntriesSkipped(t *testing.T) {

@@ -32,7 +32,9 @@ func TestInitPricingUsesCachedFile(t *testing.T) {
 		"default_model": "claude-test-model",
 		"display_names": [
 			{ "prefix": "test-model", "name": "Test Model" }
-		]
+		],
+		"long_context_threshold": 100000,
+		"web_search_cost": 0.05
 	}`
 
 	cacheDir := t.TempDir()
@@ -51,6 +53,17 @@ func TestInitPricingUsesCachedFile(t *testing.T) {
 	p := resolvePricing("claude-test-model")
 	if p.Input != 99.0 {
 		t.Errorf("expected cached input=99.0, got %f", p.Input)
+	}
+	// Cache fields should be filled from multipliers when absent in JSON
+	assertCost(t, "fallback cache_read", p.CacheRead, 9.9)
+	assertCost(t, "fallback cache_write_5m", p.CacheWrite5m, 123.75)
+	assertCost(t, "fallback cache_write_1h", p.CacheWrite1h, 198.0)
+	// Global settings should be applied from JSON
+	if longCtxThreshold != 100000 {
+		t.Errorf("expected longCtxThreshold=100000, got %d", longCtxThreshold)
+	}
+	if webSearchCostPerSearch != 0.05 {
+		t.Errorf("expected webSearchCostPerSearch=0.05, got %f", webSearchCostPerSearch)
 	}
 	if name := shortModel("claude-test-model"); name != "Test Model" {
 		t.Errorf("expected display name 'Test Model', got %q", name)
@@ -109,6 +122,7 @@ func TestCalcCostBasic(t *testing.T) {
 }
 
 func TestCalcCostWithCache(t *testing.T) {
+	// Fallback path: no cache_creation sub-object → defaults to 1h tier
 	usage := Usage{
 		InputTokens:              0,
 		OutputTokens:             0,
@@ -116,6 +130,7 @@ func TestCalcCostWithCache(t *testing.T) {
 		CacheCreationInputTokens: 100_000,
 	}
 	cost := calcCost("claude-opus-4-6", usage)
+	// 100K cache read @ 0.1x ($5 input) = $0.05, 100K cache write 1h @ 2x = $1.00
 	assertCost(t, "cache cost", cost, 1.05)
 }
 
@@ -131,7 +146,8 @@ func TestCalcCostWithCacheBreakdown(t *testing.T) {
 		},
 	}
 	cost := calcCost("claude-opus-4-6", usage)
-	assertCost(t, "cache breakdown cost", cost, 1.0)
+	// 50K @ 5m tier (1.25x $5) = $0.3125, 50K @ 1h tier (2x $5) = $0.50
+	assertCost(t, "cache breakdown cost", cost, 0.8125)
 }
 
 func TestCalcCostWebSearch(t *testing.T) {
@@ -183,10 +199,11 @@ func TestCalcCostLongContextSonnet(t *testing.T) {
 		OutputTokens:             500_000,
 		CacheReadInputTokens:     200_000,
 		CacheCreationInputTokens: 10_000,
-		CacheCreation:            &CacheCreation{Ephemeral5mInputTokens: 10_000},
+		CacheCreation:            &CacheCreation{Ephemeral1hInputTokens: 10_000},
 	}
 	cr := calcCostResult("claude-sonnet-4-6", usage)
 	// Sonnet 4.6 has flat pricing across full 1M window (no long ctx surcharge)
+	// 50K input @ $3 = $0.15, 500K output @ $15 = $7.50, 200K cache read @ 0.1x = $0.06, 10K cache write 1h @ 2x = $0.06
 	assertCost(t, "sonnet flat rate >200K", cr.Cost, 7.77)
 	if cr.LongCtx {
 		t.Error("expected LongCtx = false (sonnet 4.6 has no long ctx pricing)")
@@ -206,18 +223,24 @@ func TestCalcCostLongContextNoModel(t *testing.T) {
 	}
 }
 
-func TestCalcCostCache5mFlag(t *testing.T) {
-	cacheWriteAs1h = false
-	defer func() { cacheWriteAs1h = true }()
-
+func TestCalcCostCacheTiersSeparate(t *testing.T) {
+	// Haiku: all cache writes at 5m tier
 	usage := Usage{
-		InputTokens:              0,
-		OutputTokens:             0,
-		CacheReadInputTokens:     100_000,
 		CacheCreationInputTokens: 100_000,
+		CacheCreation:            &CacheCreation{Ephemeral5mInputTokens: 100_000},
 	}
-	cost := calcCost("claude-opus-4-6", usage)
-	assertCost(t, "cache 5m flag", cost, 0.675)
+	cost := calcCost("claude-haiku-4-5-20251001", usage)
+	// 100K @ 5m tier (1.25x $1) = $0.125
+	assertCost(t, "haiku 5m cache", cost, 0.125)
+
+	// Opus: all cache writes at 1h tier
+	usage2 := Usage{
+		CacheCreationInputTokens: 100_000,
+		CacheCreation:            &CacheCreation{Ephemeral1hInputTokens: 100_000},
+	}
+	cost2 := calcCost("claude-opus-4-6", usage2)
+	// 100K @ 1h tier (2x $5) = $1.00
+	assertCost(t, "opus 1h cache", cost2, 1.0)
 }
 
 func TestShortModel(t *testing.T) {
