@@ -170,9 +170,10 @@ func TestCalcCostLongContextPremium(t *testing.T) {
 		CacheReadInputTokens: 150_000,
 	}
 	cr := calcCostResult("claude-opus-4-6", usage)
-	assertCost(t, "long context premium", cr.Cost, 38.65)
-	if !cr.LongCtx {
-		t.Error("expected LongCtx = true for >200K")
+	// Opus 4.6 has flat pricing across full 1M window (no long ctx surcharge)
+	assertCost(t, "opus flat rate >200K", cr.Cost, 25.575)
+	if cr.LongCtx {
+		t.Error("expected LongCtx = false (opus 4.6 has no long ctx pricing)")
 	}
 }
 
@@ -185,9 +186,10 @@ func TestCalcCostLongContextSonnet(t *testing.T) {
 		CacheCreation:            &CacheCreation{Ephemeral5mInputTokens: 10_000},
 	}
 	cr := calcCostResult("claude-sonnet-4-6", usage)
-	assertCost(t, "sonnet long context", cr.Cost, 11.79)
-	if !cr.LongCtx {
-		t.Error("expected LongCtx = true")
+	// Sonnet 4.6 has flat pricing across full 1M window (no long ctx surcharge)
+	assertCost(t, "sonnet flat rate >200K", cr.Cost, 7.77)
+	if cr.LongCtx {
+		t.Error("expected LongCtx = false (sonnet 4.6 has no long ctx pricing)")
 	}
 }
 

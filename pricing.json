@@ -1,12 +1,12 @@
 {
   "models": {
-    "claude-opus-4-6":   { "input": 5.00,  "output": 25.00, "long_ctx_input": 10.00, "long_ctx_output": 37.50 },
+    "claude-opus-4-6":   { "input": 5.00,  "output": 25.00 },
     "claude-opus-4-5":   { "input": 5.00,  "output": 25.00 },
     "claude-opus-4-1":   { "input": 15.00, "output": 75.00 },
     "claude-opus-3":     { "input": 15.00, "output": 75.00 },
-    "claude-sonnet-4-6": { "input": 3.00,  "output": 15.00, "long_ctx_input": 6.00, "long_ctx_output": 22.50 },
-    "claude-sonnet-4-5": { "input": 3.00,  "output": 15.00, "long_ctx_input": 6.00, "long_ctx_output": 22.50 },
-    "claude-sonnet-4":   { "input": 3.00,  "output": 15.00, "long_ctx_input": 6.00, "long_ctx_output": 22.50 },
+    "claude-sonnet-4-6": { "input": 3.00,  "output": 15.00 },
+    "claude-sonnet-4-5": { "input": 3.00,  "output": 15.00 },
+    "claude-sonnet-4":   { "input": 3.00,  "output": 15.00 },
     "claude-sonnet-3":   { "input": 3.00,  "output": 15.00 },
     "claude-haiku-4-5":  { "input": 1.00,  "output": 5.00 },
     "claude-haiku-3-5":  { "input": 0.80,  "output": 4.00 },
