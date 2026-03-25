@@ -14,6 +14,7 @@ func TestReadStatuslineInput_Valid(t *testing.T) {
 		"model": {"id": "claude-opus-4-6", "display_name": "Opus"},
 		"cost": {"total_cost_usd": 1.23},
 		"context_window": {"used_percentage": 45.2},
+		"rate_limits": {"five_hour": {"used_percentage": 42, "resets_at": 1774468800}},
 		"transcript_path": "/home/user/.claude/projects/my-project/abc123.jsonl",
 		"session_id": "abc123"
 	}`
@@ -32,6 +33,15 @@ func TestReadStatuslineInput_Valid(t *testing.T) {
 	}
 	if input.TranscriptPath != "/home/user/.claude/projects/my-project/abc123.jsonl" {
 		t.Errorf("TranscriptPath = %q", input.TranscriptPath)
+	}
+	if input.RateLimits.FiveHour == nil {
+		t.Fatal("expected non-nil FiveHour")
+	}
+	if input.RateLimits.FiveHour.UsedPercentage != 42 {
+		t.Errorf("FiveHour.UsedPercentage = %f, want 42", input.RateLimits.FiveHour.UsedPercentage)
+	}
+	if input.RateLimits.FiveHour.ResetsAt != 1774468800 {
+		t.Errorf("FiveHour.ResetsAt = %d, want 1774468800", input.RateLimits.FiveHour.ResetsAt)
 	}
 }
 
@@ -56,6 +66,81 @@ func TestReadStatuslineInput_MissingFields(t *testing.T) {
 	}
 	if input.TranscriptPath != "" {
 		t.Errorf("expected empty TranscriptPath, got %q", input.TranscriptPath)
+	}
+	if input.RateLimits.FiveHour != nil {
+		t.Errorf("expected nil FiveHour, got %+v", input.RateLimits.FiveHour)
+	}
+}
+
+func TestFormatFiveHourUsage(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	tests := []struct {
+		name     string
+		pct      float64
+		resetsAt int64
+		now      time.Time
+		want     string
+	}{
+		{
+			name:     "mid window low usage",
+			pct:      6,
+			resetsAt: time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 11, 30, 0, 0, time.UTC),
+			want:     "🔋 94% (1.5/5h)",
+		},
+		{
+			name:     "full hour no decimal",
+			pct:      20,
+			resetsAt: time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC),
+			want:     "🔋 80% (2/5h)",
+		},
+		{
+			name:     "just started full battery",
+			pct:      0,
+			resetsAt: time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC),
+			want:     "🔋 100% (0/5h)",
+		},
+		{
+			name:     "heavy usage low remaining",
+			pct:      85,
+			resetsAt: time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 14, 42, 0, 0, time.UTC),
+			want:     "🪫 15% (4.7/5h)",
+		},
+		{
+			name:     "fully depleted clamps to 0%",
+			pct:      100,
+			resetsAt: time.Date(2026, 3, 25, 10, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 11, 0, 0, 0, time.UTC),
+			want:     "🪫 0% (5/5h)",
+		},
+		{
+			name:     "at 25% remaining switches to low battery",
+			pct:      75,
+			resetsAt: time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 13, 0, 0, 0, time.UTC),
+			want:     "🪫 25% (3/5h)",
+		},
+		{
+			name:     "at 26% remaining stays full battery",
+			pct:      74,
+			resetsAt: time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix(),
+			now:      time.Date(2026, 3, 25, 13, 0, 0, 0, time.UTC),
+			want:     "🔋 26% (3/5h)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatFiveHourUsage(tt.pct, tt.resetsAt, tt.now)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -228,6 +313,45 @@ func TestFormatStatusline(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFormatStatusline_With5h(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := &StatuslineInput{}
+	input.Model.ID = "claude-opus-4-6"
+	input.ContextWindow.UsedPercentage = 34.0
+	input.RateLimits.FiveHour = &struct {
+		UsedPercentage float64 `json:"used_percentage"`
+		ResetsAt       int64   `json:"resets_at"`
+	}{UsedPercentage: 6, ResetsAt: time.Now().Add(2 * time.Hour).Unix()}
+
+	result := formatStatusline(1.35, 1.98, input, nil)
+	if !strings.Contains(result, "🔋 94%") {
+		t.Errorf("output %q missing 5h battery segment", result)
+	}
+	// 5h segment should appear before model
+	batteryIdx := strings.Index(result, "🔋")
+	modelIdx := strings.Index(result, "🤖")
+	if batteryIdx >= modelIdx {
+		t.Errorf("5h segment should appear before model: %q", result)
+	}
+}
+
+func TestFormatStatusline_No5h(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := &StatuslineInput{}
+	input.Model.ID = "claude-opus-4-6"
+	input.ContextWindow.UsedPercentage = 45.0
+	// RateLimits.FiveHour is nil (API billing)
+
+	result := formatStatusline(0.50, 2.00, input, nil)
+	if strings.Contains(result, "🔋") || strings.Contains(result, "🪫") {
+		t.Errorf("output %q should not contain battery when FiveHour is nil", result)
 	}
 }
 

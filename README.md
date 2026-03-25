@@ -6,7 +6,7 @@
 
 A fast, zero-dependency CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview) — single binary, no runtime needed.
 
-Parses JSONL logs from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, project, and month — with accurate per-model pricing including cache write tiers, long-context premiums, and web search costs.
+Parses JSONL conversation logs and subagent sessions from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, project, and branch — with accurate cache-tier and web search pricing.
 
 ![demo](https://github.com/user-attachments/assets/a65fc389-951d-47bc-9a69-5f498f3c1d32)
 
@@ -89,16 +89,17 @@ JSON output always reports costs in USD for backward compatibility, with a `curr
 goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider — a live cost dashboard right in your terminal prompt.
 
 ```text
-💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔌 2 MCPs (confluence, jira) · 🤖 Opus 4.6
+💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔌 2 MCPs (confluence, jira) · 🔋 94% (1.5/5h) · 🤖 Opus 4.6
 ```
 
 - **💸 Session cost** — parsed from the current session's JSONL files using goccc's pricing table
 - **💰 Today's total** — aggregated across all sessions today (shown only when higher than session cost)
 - **💭 Context %** — context window usage percentage
 - **🔌 MCPs** — active MCP servers (from settings, marketplace plugins, and project config; respects per-project disables)
+- **🔋 5h window** — remaining percentage of the 5-hour usage window with elapsed time (subscription users only; hidden for API billing). Emoji switches to 🪫 below 25%
 - **🤖 Model** — current model
 
-Cost and context values are color-coded yellow → red as they increase.
+Cost and context values are color-coded yellow → red as they increase. The 5h window is color-coded in reverse — yellow below 50%, red below 25%.
 
 ### Setup
 
@@ -126,7 +127,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-To hide the MCP indicator, add `-no-mcp`.
+To hide the MCP indicator, add `-no-mcp`. To hide the 5-hour usage window, add `-no-5h`.
 
 ## Session Exit Hook
 
@@ -191,6 +192,7 @@ Thresholds are in USD (before currency conversion). They apply to the terminal o
 | `-session-end` | | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
 | `-no-mcp` | | `false` | Hide MCP servers from statusline output |
+| `-no-5h` | | `false` | Hide 5-hour usage window from statusline output |
 | `-currency-symbol` | | | Override currency symbol (requires `-currency-rate`) |
 | `-currency-rate` | | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
 | `-version` | `-V` | | Print version and exit |

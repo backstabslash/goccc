@@ -14,6 +14,11 @@ import (
 const (
 	ctxThresholdRed    = 70.0
 	ctxThresholdYellow = 50.0
+
+	fiveHourWindow          = 5 * time.Hour
+	fiveHourThresholdRed    = 25.0
+	fiveHourThresholdYellow = 50.0
+	fiveHourLowBattery      = 25.0
 )
 
 type StatuslineInput struct {
@@ -27,7 +32,53 @@ type StatuslineInput struct {
 	ContextWindow struct {
 		UsedPercentage float64 `json:"used_percentage"`
 	} `json:"context_window"`
+	RateLimits struct {
+		FiveHour *struct {
+			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
+		} `json:"five_hour"`
+	} `json:"rate_limits"`
 	TranscriptPath string `json:"transcript_path"`
+}
+
+func formatFiveHourUsage(usedPct float64, resetsAt int64, now time.Time) string {
+	remainPct := 100 - usedPct
+	if remainPct < 0 {
+		remainPct = 0
+	}
+
+	resetTime := time.Unix(resetsAt, 0)
+	remaining := resetTime.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	elapsed := fiveHourWindow - remaining
+	if elapsed > fiveHourWindow {
+		elapsed = fiveHourWindow
+	}
+
+	hours := elapsed.Hours()
+	var elapsedStr string
+	if hours == float64(int(hours)) {
+		elapsedStr = fmt.Sprintf("%d/5h", int(hours))
+	} else {
+		elapsedStr = fmt.Sprintf("%.1f/5h", hours)
+	}
+
+	emoji := "🔋"
+	if remainPct <= fiveHourLowBattery {
+		emoji = "🪫"
+	}
+
+	pctStr := fmt.Sprintf("%.0f%%", remainPct)
+	switch {
+	case remainPct <= fiveHourThresholdRed:
+		pctStr = redString(pctStr)
+	case remainPct <= fiveHourThresholdYellow:
+		pctStr = yellowString(pctStr)
+	}
+
+	return fmt.Sprintf("%s %s (%s)", emoji, pctStr, elapsedStr)
 }
 
 func readStatuslineInput(r io.Reader) (*StatuslineInput, error) {
@@ -114,12 +165,19 @@ func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []s
 		}
 		parts = append(parts, fmt.Sprintf("🔌 %d %s (%s)", len(mcpNames), label, list))
 	}
+	if input.RateLimits.FiveHour != nil {
+		parts = append(parts, formatFiveHourUsage(
+			input.RateLimits.FiveHour.UsedPercentage,
+			input.RateLimits.FiveHour.ResetsAt,
+			time.Now(),
+		))
+	}
 	parts = append(parts, "🤖 "+modelStr)
 
 	return strings.Join(parts, " · ")
 }
 
-func runStatusline(baseDir string, noMCP bool) {
+func runStatusline(baseDir string, noMCP, no5h bool) {
 	input, err := readStatuslineInput(os.Stdin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "goccc: %v\n", err)
@@ -142,6 +200,10 @@ func runStatusline(baseDir string, noMCP bool) {
 	todayData, err := parseLogs(baseDir, 1, "")
 	if err == nil {
 		tCost = todayData.Totals().Cost
+	}
+
+	if no5h {
+		input.RateLimits.FiveHour = nil
 	}
 
 	var mcpNames []string

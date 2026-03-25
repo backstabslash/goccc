@@ -56,6 +56,7 @@ func main() {
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 	sessionEnd := flag.Bool("session-end", false, "Session end hook mode: read SessionEnd JSON from stdin, print cost summary")
 	noMCP := flag.Bool("no-mcp", false, "Hide MCP servers from statusline output")
+	no5h := flag.Bool("no-5h", false, "Hide 5-hour usage window from statusline output")
 	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
 	currencyRateFlag := flag.Float64("currency-rate", 0, "Override exchange rate from USD (requires -currency-symbol)")
 
@@ -100,7 +101,7 @@ func main() {
 	initPricing()
 
 	if *statusline {
-		runStatusline(*baseDir, *noMCP)
+		runStatusline(*baseDir, *noMCP, *no5h)
 		return
 	}
 

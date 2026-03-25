@@ -11,13 +11,13 @@ import (
 )
 
 type ModelPricing struct {
-	Input           float64 `json:"input"`
-	Output          float64 `json:"output"`
-	CacheRead       float64 `json:"cache_read,omitempty"`
-	CacheWrite5m    float64 `json:"cache_write_5m,omitempty"`
-	CacheWrite1h    float64 `json:"cache_write_1h,omitempty"`
-	LongCtxInput    float64 `json:"long_ctx_input,omitempty"`
-	LongCtxOutput   float64 `json:"long_ctx_output,omitempty"`
+	Input               float64 `json:"input"`
+	Output              float64 `json:"output"`
+	CacheRead           float64 `json:"cache_read,omitempty"`
+	CacheWrite5m        float64 `json:"cache_write_5m,omitempty"`
+	CacheWrite1h        float64 `json:"cache_write_1h,omitempty"`
+	LongCtxInput        float64 `json:"long_ctx_input,omitempty"`
+	LongCtxOutput       float64 `json:"long_ctx_output,omitempty"`
 	LongCtxCacheRead    float64 `json:"long_ctx_cache_read,omitempty"`
 	LongCtxCacheWrite5m float64 `json:"long_ctx_cache_write_5m,omitempty"`
 	LongCtxCacheWrite1h float64 `json:"long_ctx_cache_write_1h,omitempty"`
@@ -46,11 +46,11 @@ type PricingDisplayName struct {
 }
 
 var (
-	pricingTable          map[string]ModelPricing
-	familyPrefixes        []PricingFamily
-	defaultPricing        ModelPricing
-	displayNames          []PricingDisplayName
-	longCtxThreshold      = 200_000
+	pricingTable           map[string]ModelPricing
+	familyPrefixes         []PricingFamily
+	defaultPricing         ModelPricing
+	displayNames           []PricingDisplayName
+	longCtxThreshold       = 200_000
 	webSearchCostPerSearch = 0.01
 )
 
