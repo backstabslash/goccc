@@ -323,10 +323,9 @@ func TestFormatStatusline_With5h(t *testing.T) {
 	input := &StatuslineInput{}
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 34.0
-	input.RateLimits.FiveHour = &struct {
-		UsedPercentage float64 `json:"used_percentage"`
-		ResetsAt       int64   `json:"resets_at"`
-	}{UsedPercentage: 6, ResetsAt: time.Now().Add(2 * time.Hour).Unix()}
+	input.RateLimits.FiveHour = &rateLimitWindow{
+		UsedPercentage: 6, ResetsAt: time.Now().Add(2 * time.Hour).Unix(),
+	}
 
 	result := formatStatusline(1.35, 1.98, input, nil)
 	if !strings.Contains(result, "🔋 94%") {

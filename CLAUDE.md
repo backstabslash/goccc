@@ -17,6 +17,7 @@ Go 1.26, stdlib only (zero external deps), GoReleaser for cross-platform builds
 ├── format.go          # Terminal and JSON output formatting
 ├── color.go           # ANSI color helpers (custom implementation, no external deps)
 ├── statusline.go      # Statusline mode + session exit hook (reads stdin JSON, outputs formatted cost)
+├── statusline_config.go # Statusline customization: config structs, segment registry, renderers
 ├── currency.go        # Config (~/.goccc.json): currency, exchange rates, cost thresholds
 ├── mcp.go             # MCP server detection, per-project disable filtering, plugin walk
 ├── update.go          # Version update checking and remote pricing cache refresh
@@ -104,7 +105,8 @@ One API call produces multiple JSONL entries sharing the same `requestId`. `inpu
 - **MCP sources** — six detection paths: `mcpServers` in settings.json, marketplace `enabledPlugins` with `.mcp.json` walk, project-level `.mcp.json` via `cwd` from transcript, `settings.local.json` in project `.claude/`, top-level `mcpServers` in `~/.claude.json`, and per-project `mcpServers` in `~/.claude.json`
 - **Config file** — `~/.goccc.json` stores currency code, cached rate, timestamp, and cost thresholds (`warn_threshold`/`alert_threshold`). `initConfig()` loads everything once: thresholds first (with swap-correction if misordered), then currency. Exchange rates auto-fetched and cached for 24h. `-currency-symbol` and `-currency-rate` flags override config (both required together). JSON output cost fields always in USD
 - **Session end hook** — `-session-end` reads `SessionEnd` JSON from stdin, parses the session transcript, and outputs a one-line cost summary. Uses `os.Exit(2)` + ANSI escape to overwrite Claude Code's "hook failed" prefix. Silently exits on any error — never breaks session teardown
-- **5h usage window** — statusline parses `rate_limits.five_hour` from Claude Code's stdin JSON (`used_percentage` + `resets_at` unix timestamp). Displayed as remaining percentage with elapsed time: `🔋 94% (1.5/5h)`. Uses pointer field (`*struct`) — nil when absent (API billing users), so the segment is auto-hidden. Emoji switches to 🪫 at ≤25% remaining. Color thresholds are inverted vs cost (yellow ≤50%, red ≤25% remaining). `-no-5h` flag opts out
+- **Customizable statusline** — `statusline` key in `~/.goccc.json` configures segment order, visibility, separator, and per-segment emoji/label overrides. No config = current defaults. Segments with no data auto-hide (e.g. `5h`/`7d` on API billing, `mcp` when none detected). `"|"` in the segments array forces a line break. Config structs and segment registry live in `statusline_config.go`
+- **Rate limit windows** — `formatRateLimitUsage` handles both 5h and 7d windows via `rateLimitWindow` struct. Uses pointer fields — nil when absent (API billing users). Emoji switches to 🪫 at ≤25% remaining. Color thresholds inverted vs cost (yellow ≤50%, red ≤25% remaining)
 
 ## Don't
 

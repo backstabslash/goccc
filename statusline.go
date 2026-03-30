@@ -21,64 +21,42 @@ const (
 	fiveHourLowBattery      = 25.0
 )
 
+type rateLimitWindow struct {
+	UsedPercentage float64 `json:"used_percentage"`
+	ResetsAt       int64   `json:"resets_at"`
+}
+
 type StatuslineInput struct {
 	Model struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"display_name"`
 	} `json:"model"`
 	Cost struct {
-		TotalCostUSD float64 `json:"total_cost_usd"`
+		TotalCostUSD      float64 `json:"total_cost_usd"`
+		TotalDurationMs   int64   `json:"total_duration_ms"`
+		TotalLinesAdded   int     `json:"total_lines_added"`
+		TotalLinesRemoved int     `json:"total_lines_removed"`
 	} `json:"cost"`
 	ContextWindow struct {
-		UsedPercentage float64 `json:"used_percentage"`
+		UsedPercentage    float64 `json:"used_percentage"`
+		TotalInputTokens  int     `json:"total_input_tokens"`
+		TotalOutputTokens int     `json:"total_output_tokens"`
 	} `json:"context_window"`
 	RateLimits struct {
-		FiveHour *struct {
-			UsedPercentage float64 `json:"used_percentage"`
-			ResetsAt       int64   `json:"resets_at"`
-		} `json:"five_hour"`
+		FiveHour *rateLimitWindow `json:"five_hour"`
+		SevenDay *rateLimitWindow `json:"seven_day"`
 	} `json:"rate_limits"`
 	TranscriptPath string `json:"transcript_path"`
+	Cwd            string `json:"cwd"`
+	Version        string `json:"version"`
+	Workspace      struct {
+		CurrentDir string `json:"current_dir"`
+	} `json:"workspace"`
 }
 
+// formatFiveHourUsage is kept for backward compatibility with tests.
 func formatFiveHourUsage(usedPct float64, resetsAt int64, now time.Time) string {
-	remainPct := 100 - usedPct
-	if remainPct < 0 {
-		remainPct = 0
-	}
-
-	resetTime := time.Unix(resetsAt, 0)
-	remaining := resetTime.Sub(now)
-	if remaining < 0 {
-		remaining = 0
-	}
-	elapsed := fiveHourWindow - remaining
-	if elapsed > fiveHourWindow {
-		elapsed = fiveHourWindow
-	}
-
-	hours := elapsed.Hours()
-	var elapsedStr string
-	if hours == float64(int(hours)) {
-		elapsedStr = fmt.Sprintf("%d/5h", int(hours))
-	} else {
-		elapsedStr = fmt.Sprintf("%.1f/5h", hours)
-	}
-
-	emoji := "🔋"
-	if remainPct <= fiveHourLowBattery {
-		emoji = "🪫"
-	}
-
-	pctStr := fmt.Sprintf("%.0f%%", remainPct)
-	switch {
-	case remainPct <= fiveHourThresholdRed:
-		pctStr = redString(pctStr)
-	case remainPct <= fiveHourThresholdYellow:
-		pctStr = yellowString(pctStr)
-	}
-
-	return fmt.Sprintf("%s %s (%s)", emoji, pctStr, elapsedStr)
+	return formatRateLimitUsage(usedPct, resetsAt, now, fiveHourWindow, fiveHourLowBattery)
 }
 
 func readStatuslineInput(r io.Reader) (*StatuslineInput, error) {
@@ -129,60 +107,32 @@ func sessionCost(deduped map[string]*dedupRecord) float64 {
 }
 
 func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []string) string {
-	ctxPct := input.ContextWindow.UsedPercentage
-	pctStr := fmt.Sprintf("%.0f%%", ctxPct)
-	switch {
-	case ctxPct >= ctxThresholdRed:
-		pctStr = redString(pctStr)
-	case ctxPct >= ctxThresholdYellow:
-		pctStr = yellowString(pctStr)
-	}
-	ctxStr := pctStr + " ctx"
-
-	modelStr := shortModel(input.Model.ID)
-
-	var parts []string
-	if sCost > 0 {
-		parts = append(parts, "💸 "+colorCost(sCost, 0)+" session")
-	}
-	if tCost > 0 {
-		parts = append(parts, "💰 "+colorCost(tCost, 0)+" today")
-	}
-	parts = append(parts, "💭 "+ctxStr)
-	if len(mcpNames) > 0 {
-		label := "MCPs"
-		if len(mcpNames) == 1 {
-			label = "MCP"
-		}
-		const maxShown = 3
-		shown := mcpNames
-		if len(shown) > maxShown {
-			shown = shown[:maxShown]
-		}
-		list := strings.Join(shown, ", ")
-		if len(mcpNames) > maxShown {
-			list += ", ..."
-		}
-		parts = append(parts, fmt.Sprintf("🔌 %d %s (%s)", len(mcpNames), label, list))
-	}
-	if input.RateLimits.FiveHour != nil {
-		parts = append(parts, formatFiveHourUsage(
-			input.RateLimits.FiveHour.UsedPercentage,
-			input.RateLimits.FiveHour.ResetsAt,
-			time.Now(),
-		))
-	}
-	parts = append(parts, "🤖 "+modelStr)
-
-	return strings.Join(parts, " · ")
+	return formatStatuslineWithConfig(sCost, tCost, input, mcpNames, nil)
 }
 
-func runStatusline(baseDir string, noMCP, no5h bool) {
+func formatStatuslineWithConfig(sCost, tCost float64, input *StatuslineInput, mcpNames []string, cfg *StatuslineConfig) string {
+	segments, sep, opts := resolveStatuslineConfig(cfg)
+	ctx := &StatuslineContext{
+		SessionCost: sCost,
+		TodayCost:   tCost,
+		Input:       input,
+		MCPNames:    mcpNames,
+		Options:     opts,
+	}
+	return assembleStatusline(segments, sep, ctx)
+}
+
+func runStatusline(baseDir string) {
 	input, err := readStatuslineInput(os.Stdin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "goccc: %v\n", err)
 		os.Exit(1)
 	}
+
+	cfgPath := configPath()
+	cfg := loadCurrencyConfig(cfgPath)
+
+	segments, _, _ := resolveStatuslineConfig(cfg.Statusline)
 
 	var sCost float64
 	if input.TranscriptPath != "" {
@@ -197,20 +147,27 @@ func runStatusline(baseDir string, noMCP, no5h bool) {
 	}
 
 	var tCost float64
-	todayData, err := parseLogs(baseDir, 1, "")
-	if err == nil {
-		tCost = todayData.Totals().Cost
-	}
-
-	if no5h {
-		input.RateLimits.FiveHour = nil
+	if hasSegment(segments, "today_cost") {
+		if todayData, err := parseLogs(baseDir, 1, ""); err == nil {
+			tCost = todayData.Totals().Cost
+		}
 	}
 
 	var mcpNames []string
-	if !noMCP {
+	if hasSegment(segments, "mcp") {
 		mcpNames = detectMCPs(baseDir, input.TranscriptPath)
 	}
-	fmt.Print(formatStatusline(sCost, tCost, input, mcpNames))
+
+	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, cfg.Statusline))
+}
+
+func hasSegment(segments []string, name string) bool {
+	for _, s := range segments {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 type SessionEndInput struct {

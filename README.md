@@ -127,7 +127,45 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-To hide the MCP indicator, add `-no-mcp`. To hide the 5-hour usage window, add `-no-5h`.
+### Customization
+
+The statusline is fully customizable via `~/.goccc.json`. With no config, you get the default layout shown above.
+
+```json
+{
+  "statusline": {
+    "segments": ["session_cost", "today_cost", "|", "ctx", "mcp", "5h", "model"],
+    "separator": " · ",
+    "segment_options": {
+      "session_cost": { "emoji": "🤑" },
+      "ctx": { "emoji": "🧠", "label": "context" }
+    }
+  }
+}
+```
+
+**`segments`** — ordered list of segments to display. Only listed segments are shown. Use `"|"` to force a line break (as shown above).
+
+Available segments:
+
+| Segment | Default | Auto-hides when |
+| --------- | --------- | ------------------- |
+| `session_cost` | `💸 $X.XX session` | cost is $0 |
+| `today_cost` | `💰 $X.XX today` | cost is $0 |
+| `ctx` | `💭 XX% ctx` | — |
+| `model` | `🤖 Model Name` | — |
+| `mcp` | `🔌 N MCPs (...)` | no MCPs detected |
+| `5h` | `🔋 XX% (X/5h)` | absent (API billing) |
+| `7d` | `🔋 XX% (X/7d)` | absent (API billing) |
+| `tokens` | `📊 XK in / XK out` | both zero |
+| `lines` | `📝 +N -N` | both zero |
+| `duration` | `⏱️ Xm` | zero |
+| `cwd` | `📁 dirname` | empty |
+| `version` | `🏷️ X.Y.Z` | empty |
+
+**`separator`** — string between segments (default: `" · "`).
+
+**`segment_options`** — per-segment overrides for `emoji` and `label`. Only specified fields are overridden.
 
 ## Session Exit Hook
 
@@ -191,8 +229,6 @@ Thresholds are in USD (before currency conversion). They apply to the terminal o
 | `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
 | `-session-end` | | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
 | `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
-| `-no-mcp` | | `false` | Hide MCP servers from statusline output |
-| `-no-5h` | | `false` | Hide 5-hour usage window from statusline output |
 | `-currency-symbol` | | | Override currency symbol (requires `-currency-rate`) |
 | `-currency-rate` | | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
 | `-version` | `-V` | | Print version and exit |

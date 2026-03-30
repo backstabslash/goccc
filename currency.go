@@ -21,11 +21,12 @@ var activeCurrency struct {
 
 // CurrencyConfig represents the persistent config in ~/.goccc.json.
 type CurrencyConfig struct {
-	Currency       string  `json:"currency"`
-	CachedRate     float64 `json:"cached_rate,omitempty"`
-	RateUpdated    string  `json:"rate_updated,omitempty"`
-	WarnThreshold  float64 `json:"warn_threshold,omitempty"`
-	AlertThreshold float64 `json:"alert_threshold,omitempty"`
+	Currency       string            `json:"currency"`
+	CachedRate     float64           `json:"cached_rate,omitempty"`
+	RateUpdated    string            `json:"rate_updated,omitempty"`
+	WarnThreshold  float64           `json:"warn_threshold,omitempty"`
+	AlertThreshold float64           `json:"alert_threshold,omitempty"`
+	Statusline     *StatuslineConfig `json:"statusline,omitempty"`
 }
 
 type currencyInfo struct {
