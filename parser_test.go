@@ -118,6 +118,7 @@ func TestDeduplicate_StreamingUpdates(t *testing.T) {
 	opus := data.ModelUsage["claude-opus-4-6"]
 	if opus == nil {
 		t.Fatal("expected opus bucket")
+		return
 	}
 	if opus.OutputTokens != 50 {
 		t.Errorf("expected output_tokens=50 (last value wins), got %d", opus.OutputTokens)
@@ -378,6 +379,7 @@ func TestDailyAggregation(t *testing.T) {
 	todayBucket := data.DailyUsage[today]["claude-opus-4-6"]
 	if todayBucket == nil {
 		t.Fatalf("no bucket for today %s", today)
+		return
 	}
 	if todayBucket.Requests != 2 {
 		t.Errorf("expected 2 requests today, got %d", todayBucket.Requests)
@@ -389,6 +391,7 @@ func TestDailyAggregation(t *testing.T) {
 	yesterdayBucket := data.DailyUsage[yesterday]["claude-opus-4-6"]
 	if yesterdayBucket == nil {
 		t.Fatalf("no bucket for yesterday %s", yesterday)
+		return
 	}
 	if yesterdayBucket.Requests != 1 {
 		t.Errorf("expected 1 request yesterday, got %d", yesterdayBucket.Requests)

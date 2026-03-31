@@ -51,6 +51,7 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	opus := data.ModelUsage["claude-opus-4-6"]
 	if opus == nil {
 		t.Fatal("missing Opus 4.6 model bucket")
+		return
 	}
 	assertInt(t, "opus.Requests", opus.Requests, 4)
 	assertInt(t, "opus.InputTokens", opus.InputTokens, 102000)
@@ -77,6 +78,7 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	haiku := data.ModelUsage["claude-haiku-4-5-20251001"]
 	if haiku == nil {
 		t.Fatal("missing Haiku 4.5 model bucket")
+		return
 	}
 	assertInt(t, "haiku.Requests", haiku.Requests, 3)
 	assertInt(t, "haiku.InputTokens", haiku.InputTokens, 19000)

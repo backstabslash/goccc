@@ -51,10 +51,14 @@ func fmtCost(c float64) string {
 }
 
 func colorize(s string, cost float64) string {
+	c := cost
+	if activeCurrency.Rate > 0 {
+		c = cost * activeCurrency.Rate
+	}
 	switch {
-	case cost >= costThresholdRed:
+	case c >= costThresholdRed:
 		return redString(s)
-	case cost >= costThresholdYellow:
+	case c >= costThresholdYellow:
 		return yellowString(s)
 	default:
 		return s

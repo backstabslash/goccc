@@ -4,9 +4,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/backstabslash/goccc?color=blue)](https://github.com/backstabslash/goccc/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A fast, zero-dependency CLI cost calculator and [statusline provider](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview) — single binary, no runtime needed.
-
-Parses JSONL conversation logs and subagent sessions from `~/.claude/projects/`, deduplicates streaming responses, and breaks down spending by model, day, project, and branch — with accurate cache-tier and web search pricing.
+A fast, zero-dependency CLI cost calculator and [customizable statusline](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview). Breakdowns by model, day, project, and branch. Single binary, no runtime needed.
 
 ![demo](https://github.com/user-attachments/assets/a65fc389-951d-47bc-9a69-5f498f3c1d32)
 
@@ -62,31 +60,9 @@ goccc -json | jq '.summary.total_cost'  # Pipe to jq for custom analysis
 goccc -currency-symbol "€" -currency-rate 0.92  # One-off currency override
 ```
 
-### Local Currency
-
-To display costs in your local currency, create `~/.goccc.json`:
-
-```json
-{
-  "currency": "ZAR"
-}
-```
-
-goccc will auto-fetch the exchange rate from USD and cache it for 24 hours. If the API is unreachable, the last cached rate is used. Set `currency` to any [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217) code (e.g., `EUR`, `GBP`, `ZAR`, `JPY`).
-
-For one-off overrides without a config file, use both flags together:
-
-```bash
-goccc -currency-symbol "€" -currency-rate 0.92
-```
-
-JSON output always reports costs in USD for backward compatibility, with a `currency` metadata object when a non-USD currency is active.
-
-> See also: [Configuration](#configuration) for threshold customization.
-
 ## Claude Code Statusline
 
-goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) provider — a live cost dashboard right in your terminal prompt.
+goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) — a fully customizable, live cost dashboard right in your terminal prompt.
 
 ```text
 💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔌 2 MCPs (confluence, jira) · 🔋 94% (1.5/5h) · 🤖 Opus 4.6
@@ -96,16 +72,14 @@ goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/st
 - **💰 Today's total** — aggregated across all sessions today (shown only when higher than session cost)
 - **💭 Context %** — context window usage percentage
 - **🔌 MCPs** — active MCP servers (from settings, marketplace plugins, and project config; respects per-project disables)
-- **🔋 5h window** — remaining percentage of the 5-hour usage window with elapsed time (subscription users only; hidden for API billing). Emoji switches to 🪫 below 25%
+- **🔋 5h / 7d window** — remaining percentage of the usage window with elapsed time (subscription users only; hidden for API billing). Emoji switches to 🪫 below 25%
 - **🤖 Model** — current model
 
-Cost and context values are color-coded yellow → red as they increase. The 5h window is color-coded in reverse — yellow below 50%, red below 25%.
+Values are color-coded: cost and context turn yellow → red as they increase; rate limit windows are inverted — yellow below 50%, red below 25% remaining.
 
 ### Setup
 
 Add to `~/.claude/settings.json`:
-
-**Using Homebrew** (recommended — fast, no runtime needed):
 
 ```json
 {
@@ -116,16 +90,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-**Using Go** (requires Go installed; binary is cached after first download):
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "go run github.com/backstabslash/goccc@latest -statusline"
-  }
-}
-```
+Works with any [install method](#installation). To run without installing: `go run github.com/backstabslash/goccc@latest -statusline`.
 
 ### Customization
 
@@ -144,28 +109,41 @@ The statusline is fully customizable via `~/.goccc.json`. With no config, you ge
 }
 ```
 
-**`segments`** — ordered list of segments to display. Only listed segments are shown. Use `"|"` to force a line break (as shown above).
+**`segments`** — ordered list of segments to display. Only listed segments are shown. Use `"|"` to force a line break (multi-line layout). Segments with no data auto-hide.
 
 Available segments:
 
-| Segment | Default | Auto-hides when |
-| --------- | --------- | ------------------- |
-| `session_cost` | `💸 $X.XX session` | cost is $0 |
-| `today_cost` | `💰 $X.XX today` | cost is $0 |
-| `ctx` | `💭 XX% ctx` | — |
-| `model` | `🤖 Model Name` | — |
-| `mcp` | `🔌 N MCPs (...)` | no MCPs detected |
-| `5h` | `🔋 XX% (X/5h)` | absent (API billing) |
-| `7d` | `🔋 XX% (X/7d)` | absent (API billing) |
-| `tokens` | `📊 XK in / XK out` | both zero |
-| `lines` | `📝 +N -N` | both zero |
-| `duration` | `⏱️ Xm` | zero |
-| `cwd` | `📁 dirname` | empty |
-| `version` | `🏷️ X.Y.Z` | empty |
+| Segment | Default | Auto-hides when | Overrides |
+| --- | --- | --- | --- |
+| `session_cost` | `💸 $X.XX session` | cost is $0 | emoji, label |
+| `today_cost` | `💰 $X.XX today` | cost is $0 | emoji, label |
+| `ctx` | `💭 XX% ctx` | — | emoji, label |
+| `model` | `🤖 Model Name` | — | emoji |
+| `mcp` | `🔌 N MCPs (...)` | no MCPs detected | emoji, label |
+| `5h` | `🔋 XX% (X/5h)` | absent (API billing) | emoji |
+| `7d` | `🔋 XX% (X/7d)` | absent (API billing) | emoji |
+| `tokens` | `📊 XK in / XK out` | both zero | emoji |
+| `lines` | `📝 +N -N` | both zero | emoji |
+| `duration` | `⏱️ Xm` | zero | emoji |
+| `cwd` | `📁 dirname` | empty | emoji |
+| `version` | `🏷️ X.Y.Z` | empty | emoji |
 
 **`separator`** — string between segments (default: `" · "`).
 
-**`segment_options`** — per-segment overrides for `emoji` and `label`. Only specified fields are overridden.
+**`segment_options`** — per-segment overrides. `emoji` replaces the default icon (for `5h`/`7d`, replaces the dynamic 🔋/🪫). `label` replaces trailing text (only on segments marked above).
+
+#### Multi-line example
+
+Use `"|"` in the segments array to split across lines:
+
+```json
+{ "statusline": { "segments": ["session_cost", "today_cost", "|", "ctx", "5h", "tokens", "model"] } }
+```
+
+```text
+💸 $1.23 session · 💰 $5.67 today
+💭 45% ctx · 🔋 94% (1.5/5h) · 📊 12.5K in / 3.2K out · 🤖 Opus 4.6
+```
 
 ## Session Exit Hook
 
@@ -198,40 +176,40 @@ The hook runs within Claude Code's 1.5-second timeout. If anything fails, it exi
 
 ## Configuration
 
-goccc reads its config from `~/.goccc.json`.
+All configuration lives in `~/.goccc.json`. Every field is optional.
 
-### Cost Thresholds
+| Key | Description |
+| --- | --- |
+| `currency` | [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217) currency code (e.g. `EUR`, `GBP`, `JPY`). Rate auto-fetched and cached 24h |
+| `warn_threshold` | Yellow color-coding threshold (default: `$25`, auto-scales with currency; custom values used as-is) |
+| `alert_threshold` | Red color-coding threshold (default: `$50`, auto-scales with currency; custom values used as-is) |
+| `statusline` | [Statusline customization](#customization) — segments, separator, per-segment overrides |
 
-Cost values are color-coded yellow (warning) and red (alert) when they exceed thresholds. The defaults are $25 and $50 per day. To customize:
+### Local Currency
 
-```json
-{
-  "warn_threshold": 30,
-  "alert_threshold": 75
-}
-```
+Set `"currency": "EUR"` (or any ISO 4217 code) in `~/.goccc.json`. goccc auto-fetches the exchange rate from USD and caches it for 24 hours. If the API is unreachable, the last cached rate is used. For one-off overrides without a config file, use `-currency-symbol "€" -currency-rate 0.92` together.
 
-Thresholds are in USD (before currency conversion). They apply to the terminal output, statusline, and session exit hook.
+JSON output always reports costs in USD, with a `currency` metadata object when a non-USD currency is active.
 
 ## Flags
 
 | Flag | Short | Default | Description |
 | --- | --- | --- | --- |
 | `-days` | `-d` | `0` | Only show the last N calendar days (0 = all time) |
-| `-project` | `-p` | | Filter by project name (substring, case-insensitive) |
-| `-daily` | | `false` | Show daily breakdown |
+| `-project` | `-p` | — | Filter by project name (substring, case-insensitive) |
+| `-daily` | — | `false` | Show daily breakdown |
 | `-monthly` | `-m` | `false` | Show monthly breakdown (mutually exclusive with `-daily`) |
-| `-projects` | | `false` | Show per-project breakdown |
-| `-all` | | `false` | Show all breakdowns (daily + projects) |
+| `-projects` | — | `false` | Show per-project breakdown |
+| `-all` | — | `false` | Show all breakdowns (daily + projects) |
 | `-top` | `-n` | `0` | Max entries in breakdowns (0 = all) |
-| `-json` | | `false` | Output as JSON |
-| `-no-color` | | `false` | Disable colored output (also respects `NO_COLOR` env) |
-| `-base-dir` | | `~/.claude` | Base directory for Claude Code data |
-| `-session-end` | | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
-| `-statusline` | | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
-| `-currency-symbol` | | | Override currency symbol (requires `-currency-rate`) |
-| `-currency-rate` | | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
-| `-version` | `-V` | | Print version and exit |
+| `-json` | — | `false` | Output as JSON |
+| `-no-color` | — | `false` | Disable colored output (also respects `NO_COLOR` env) |
+| `-base-dir` | — | `~/.claude` | Base directory for Claude Code data |
+| `-session-end` | — | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
+| `-statusline` | — | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
+| `-currency-symbol` | — | — | Override currency symbol (requires `-currency-rate`) |
+| `-currency-rate` | — | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
+| `-version` | `-V` | — | Print version and exit |
 
 ## Preserving Log History
 

@@ -162,17 +162,37 @@ func initConfig(symbolFlag string, rateFlag float64) error {
 	cfgPath := configPath()
 	cfg := loadCurrencyConfig(cfgPath)
 
-	if cfg.WarnThreshold > 0 {
+	customWarn := cfg.WarnThreshold > 0
+	customAlert := cfg.AlertThreshold > 0
+
+	if customWarn {
 		costThresholdYellow = cfg.WarnThreshold
 	}
-	if cfg.AlertThreshold > 0 {
+	if customAlert {
 		costThresholdRed = cfg.AlertThreshold
 	}
 	if costThresholdYellow > costThresholdRed {
 		costThresholdYellow, costThresholdRed = costThresholdRed, costThresholdYellow
+		customWarn, customAlert = customAlert, customWarn
 	}
 
-	return initCurrency(symbolFlag, rateFlag, cfgPath, &cfg)
+	if err := initCurrency(symbolFlag, rateFlag, cfgPath, &cfg); err != nil {
+		return err
+	}
+
+	if activeCurrency.Rate > 0 {
+		if !customWarn {
+			costThresholdYellow *= activeCurrency.Rate
+		}
+		if !customAlert {
+			costThresholdRed *= activeCurrency.Rate
+		}
+		if costThresholdYellow > costThresholdRed {
+			costThresholdYellow, costThresholdRed = costThresholdRed, costThresholdYellow
+		}
+	}
+
+	return nil
 }
 
 // initCurrency resolves currency from CLI flags or config file and sets activeCurrency.

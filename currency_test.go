@@ -178,38 +178,80 @@ func TestResolveCurrencyRateEmpty(t *testing.T) {
 	}
 }
 
-func TestInitConfigSwapsThresholds(t *testing.T) {
+func TestInitConfigThresholds(t *testing.T) {
 	origWarn := costThresholdYellow
 	origAlert := costThresholdRed
 	origCurrency := activeCurrency
+	origConfigPath := configPath
 	defer func() {
 		costThresholdYellow = origWarn
 		costThresholdRed = origAlert
 		activeCurrency = origCurrency
+		configPath = origConfigPath
 	}()
 
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, ".goccc.json")
-	if err := os.WriteFile(cfgPath, []byte(`{"warn_threshold":75,"alert_threshold":30}`), 0644); err != nil {
-		t.Fatal(err)
+	run := func(cfgJSON string) {
+		t.Helper()
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, ".goccc.json")
+		if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0644); err != nil {
+			t.Fatal(err)
+		}
+		configPath = func() string { return cfgPath }
+		costThresholdYellow = 25.0
+		costThresholdRed = 50.0
+		activeCurrency = struct {
+			Code   string
+			Symbol string
+			Rate   float64
+			Suffix bool
+		}{}
+		if err := initConfig("", 0); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	origConfigPath := configPath
-	configPath = func() string { return cfgPath }
-	defer func() { configPath = origConfigPath }()
+	t.Run("swaps inverted thresholds", func(t *testing.T) {
+		run(`{"warn_threshold":75,"alert_threshold":30}`)
+		if costThresholdYellow != 30 {
+			t.Errorf("costThresholdYellow = %f, want 30", costThresholdYellow)
+		}
+		if costThresholdRed != 75 {
+			t.Errorf("costThresholdRed = %f, want 75", costThresholdRed)
+		}
+	})
 
-	costThresholdYellow = 25.0
-	costThresholdRed = 50.0
-	if err := initConfig("", 0); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("scales defaults with currency", func(t *testing.T) {
+		run(`{"currency":"EUR","cached_rate":0.92,"rate_updated":"2099-01-01T00:00:00Z"}`)
+		if costThresholdYellow != 25.0*0.92 {
+			t.Errorf("costThresholdYellow = %f, want %f", costThresholdYellow, 25.0*0.92)
+		}
+		if costThresholdRed != 50.0*0.92 {
+			t.Errorf("costThresholdRed = %f, want %f", costThresholdRed, 50.0*0.92)
+		}
+	})
 
-	if costThresholdYellow != 30 {
-		t.Errorf("costThresholdYellow = %f, want 30 (swapped)", costThresholdYellow)
-	}
-	if costThresholdRed != 75 {
-		t.Errorf("costThresholdRed = %f, want 75 (swapped)", costThresholdRed)
-	}
+	t.Run("custom thresholds not scaled", func(t *testing.T) {
+		run(`{"currency":"EUR","cached_rate":0.92,"rate_updated":"2099-01-01T00:00:00Z","warn_threshold":30,"alert_threshold":60}`)
+		if costThresholdYellow != 30 {
+			t.Errorf("costThresholdYellow = %f, want 30", costThresholdYellow)
+		}
+		if costThresholdRed != 60 {
+			t.Errorf("costThresholdRed = %f, want 60", costThresholdRed)
+		}
+	})
+
+	t.Run("single custom warn inverted with default + currency", func(t *testing.T) {
+		// warn_threshold=100 > default alert=50 → swap flags with values,
+		// then default (now yellow) scales to 46, custom (now red) stays 100
+		run(`{"currency":"EUR","cached_rate":0.92,"rate_updated":"2099-01-01T00:00:00Z","warn_threshold":100}`)
+		if costThresholdYellow != 50.0*0.92 {
+			t.Errorf("costThresholdYellow = %f, want %f (scaled default)", costThresholdYellow, 50.0*0.92)
+		}
+		if costThresholdRed != 100 {
+			t.Errorf("costThresholdRed = %f, want 100 (custom, not scaled)", costThresholdRed)
+		}
+	})
 }
 
 func TestResolveCurrencyRateCached(t *testing.T) {

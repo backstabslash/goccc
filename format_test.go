@@ -93,10 +93,12 @@ func TestColorizeCustomThresholds(t *testing.T) {
 	noColorFlag = false
 	origWarn := costThresholdYellow
 	origAlert := costThresholdRed
+	origCurrency := activeCurrency
 	defer func() {
 		noColorFlag = origNoColor
 		costThresholdYellow = origWarn
 		costThresholdRed = origAlert
+		activeCurrency = origCurrency
 	}()
 
 	costThresholdYellow = 10.0
@@ -110,6 +112,21 @@ func TestColorizeCustomThresholds(t *testing.T) {
 	}
 	if colorize("test", 25.0) == "test" {
 		t.Error("above alert should colorize (red)")
+	}
+
+	// With currency active, colorize converts USD cost before comparing
+	activeCurrency.Rate = 0.92
+	costThresholdYellow = 25.0
+	costThresholdRed = 50.0
+
+	if colorize("test", 20.0) != "test" { // 20 * 0.92 = 18.4 < 25
+		t.Error("€18.40 should be plain (below €25 warn)")
+	}
+	if colorize("test", 30.0) == "test" { // 30 * 0.92 = 27.6, between 25-50
+		t.Error("€27.60 should be yellow")
+	}
+	if colorize("test", 60.0) == "test" { // 60 * 0.92 = 55.2 > 50
+		t.Error("€55.20 should be red")
 	}
 }
 
