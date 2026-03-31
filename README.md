@@ -99,17 +99,27 @@ The statusline is fully customizable via `~/.goccc.json`. With no config, you ge
 ```json
 {
   "statusline": {
-    "segments": ["session_cost", "today_cost", "|", "ctx", "mcp", "5h", "model"],
+    "segments": ["session_cost", "today_cost", "ctx", "model", "|", "5h", "cwd", "branch"],
     "separator": " · ",
     "segment_options": {
-      "session_cost": { "emoji": "🤑" },
-      "ctx": { "emoji": "🧠", "label": "context" }
+      "session_cost": { "emoji": "🤑", "label": "sess" },
+      "today_cost": { "label": "day" },
+      "ctx": { "emoji": "🧠", "label": "context" },
+      "5h": { "emoji": "⏳" },
+      "branch": { "emoji": "🔀" }
     }
   }
 }
 ```
 
-**`segments`** — ordered list of segments to display. Only listed segments are shown. Use `"|"` to force a line break (multi-line layout). Segments with no data auto-hide.
+**`segments`** — ordered list of segments to display. Only listed segments are shown; segments with no data auto-hide. `"|"` forces a line break.
+
+The config above produces:
+
+```text
+🤑 $1.23 sess · 💰 $5.67 day · 🧠 45% context · 🤖 Opus 4.6
+⏳ 94% (1.5/5h) · 📁 my-project · 🔀 feature/auth
+```
 
 Available segments:
 
@@ -120,6 +130,7 @@ Available segments:
 | `ctx` | `💭 XX% ctx` | — | emoji, label |
 | `model` | `🤖 Model Name` | — | emoji |
 | `mcp` | `🔌 N MCPs (...)` | no MCPs detected | emoji, label |
+| `branch` | `🌿 branch-name` | no branch | emoji |
 | `5h` | `🔋 XX% (X/5h)` | absent (API billing) | emoji |
 | `7d` | `🔋 XX% (X/7d)` | absent (API billing) | emoji |
 | `tokens` | `📊 XK in / XK out` | both zero | emoji |
@@ -131,19 +142,6 @@ Available segments:
 **`separator`** — string between segments (default: `" · "`).
 
 **`segment_options`** — per-segment overrides. `emoji` replaces the default icon (for `5h`/`7d`, replaces the dynamic 🔋/🪫). `label` replaces trailing text (only on segments marked above).
-
-#### Multi-line example
-
-Use `"|"` in the segments array to split across lines:
-
-```json
-{ "statusline": { "segments": ["session_cost", "today_cost", "|", "ctx", "5h", "tokens", "model"] } }
-```
-
-```text
-💸 $1.23 session · 💰 $5.67 today
-💭 45% ctx · 🔋 94% (1.5/5h) · 📊 12.5K in / 3.2K out · 🤖 Opus 4.6
-```
 
 ## Session Exit Hook
 

@@ -317,7 +317,7 @@ func TestFormatStatuslineWithConfig_CustomSegments(t *testing.T) {
 	cfg := &StatuslineConfig{
 		Segments: []string{"ctx", "model"},
 	}
-	got := formatStatuslineWithConfig(0.50, 2.00, input, nil, cfg)
+	got := formatStatuslineWithConfig(0.50, 2.00, input, nil, "", cfg)
 	if got != "💭 33% ctx · 🤖 Opus 4.6" {
 		t.Errorf("got %q", got)
 	}
@@ -332,7 +332,7 @@ func TestFormatStatuslineWithConfig_CustomSeparator(t *testing.T) {
 		Segments:  []string{"ctx", "model"},
 		Separator: " | ",
 	}
-	got := formatStatuslineWithConfig(0, 0, input, nil, cfg)
+	got := formatStatuslineWithConfig(0, 0, input, nil, "", cfg)
 	if got != "💭 33% ctx | 🤖 Opus 4.6" {
 		t.Errorf("got %q", got)
 	}
@@ -346,7 +346,7 @@ func TestFormatStatuslineWithConfig_LineBreak(t *testing.T) {
 	cfg := &StatuslineConfig{
 		Segments: []string{"session_cost", "|", "ctx", "model"},
 	}
-	got := formatStatuslineWithConfig(1.00, 0, input, nil, cfg)
+	got := formatStatuslineWithConfig(1.00, 0, input, nil, "", cfg)
 	if !strings.Contains(got, "\n") {
 		t.Errorf("expected newline in %q", got)
 	}
@@ -370,8 +370,8 @@ func TestFormatStatuslineWithConfig_NilConfigMatchesDefault(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	got1 := formatStatusline(0.50, 2.00, input, nil)
-	got2 := formatStatuslineWithConfig(0.50, 2.00, input, nil, nil)
+	got1 := formatStatusline(0.50, 2.00, input, nil, "")
+	got2 := formatStatuslineWithConfig(0.50, 2.00, input, nil, "", nil)
 	if got1 != got2 {
 		t.Errorf("nil config differs from default:\n  formatStatusline:           %q\n  formatStatuslineWithConfig: %q", got1, got2)
 	}
@@ -385,7 +385,7 @@ func TestFormatStatuslineWithConfig_UnknownSegmentIgnored(t *testing.T) {
 	cfg := &StatuslineConfig{
 		Segments: []string{"nonexistent", "model"},
 	}
-	got := formatStatuslineWithConfig(0, 0, input, nil, cfg)
+	got := formatStatuslineWithConfig(0, 0, input, nil, "", cfg)
 	if got != "🤖 Opus 4.6" {
 		t.Errorf("got %q", got)
 	}
@@ -399,7 +399,7 @@ func TestFormatStatuslineWithConfig_AutoHideSkipsEmptySegments(t *testing.T) {
 	cfg := &StatuslineConfig{
 		Segments: []string{"session_cost", "5h", "mcp", "model"},
 	}
-	got := formatStatuslineWithConfig(0, 0, input, nil, cfg)
+	got := formatStatuslineWithConfig(0, 0, input, nil, "", cfg)
 	if got != "🤖 Opus 4.6" {
 		t.Errorf("got %q", got)
 	}
@@ -440,6 +440,54 @@ func TestAssembleStatusline_ConsecutiveBreaks(t *testing.T) {
 	lines := strings.Split(result, "\n")
 	if len(lines) != 2 {
 		t.Errorf("consecutive | should not produce empty lines, got %d: %q", len(lines), result)
+	}
+}
+
+func TestRenderBranch(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := makeTestInput()
+	cfg := &StatuslineConfig{
+		Segments: []string{"branch", "model"},
+	}
+
+	got := formatStatuslineWithConfig(0, 0, input, nil, "feature/auth", cfg)
+	if got != "🌿 feature/auth · 🤖 Opus 4.6" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestRenderBranch_Empty(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := makeTestInput()
+	cfg := &StatuslineConfig{
+		Segments: []string{"branch", "model"},
+	}
+
+	got := formatStatuslineWithConfig(0, 0, input, nil, "", cfg)
+	if got != "🤖 Opus 4.6" {
+		t.Errorf("expected branch to be hidden when empty, got %q", got)
+	}
+}
+
+func TestRenderBranch_CustomEmoji(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	input := makeTestInput()
+	cfg := &StatuslineConfig{
+		Segments: []string{"branch"},
+		SegmentOptions: map[string]SegmentOptions{
+			"branch": {Emoji: "🔀"},
+		},
+	}
+
+	got := formatStatuslineWithConfig(0, 0, input, nil, "main", cfg)
+	if got != "🔀 main" {
+		t.Errorf("got %q", got)
 	}
 }
 

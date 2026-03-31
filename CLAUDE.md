@@ -36,8 +36,9 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 ## Conventions
 
 - **Flat package** — all code in `package main`, one concern per file
-- **Externalized pricing** — all pricing lives in `pricing.json` (embedded via `//go:embed`, remote-cached 24h). Adding a model or adjusting pricing = edit `pricing.json` only, no code changes. Cache fields are optional — `fillCacheDefaults()` derives from input price
+- **Externalized pricing** — all pricing lives in `pricing.json` (embedded via `//go:embed`, remote-cached 24h). Adding a model or adjusting pricing = edit `pricing.json` only, no code changes. Cache fields are optional — `fillCacheDefaults()` derives from input price. Fast mode pricing lives in `fast_models` map — same structure as `models`, resolved when `usage.speed == "fast"`
 - **Pricing resolution** — exact model ID → longest family prefix → `defaultPricing`
+- **Fast mode bucketing** — parser appends `:fast` suffix to model key when `speed == "fast"`, creating separate buckets. `shortModel()` and `resolvePricing()` strip the suffix for display/lookup
 - **Local timezone everywhere** — local midnight for cutoffs, `parsed.Local()` for date bucketing. Never `UTC()` for user-facing dates
 - **MCP detection is best-effort** — returns nil/empty on error; statusline never fails due to missing config
 - **Config** — `~/.goccc.json` stores currency, thresholds, and statusline config. `initConfig()` loads once. JSON output costs always in USD
@@ -46,7 +47,7 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 
 ## Don't
 
-- Don't change pricing in Go code — edit `pricing.json` (models, families, display_names, long_context_threshold, web_search_cost)
+- Don't change pricing in Go code — edit `pricing.json` (models, fast_models, families, display_names, long_context_threshold, web_search_cost)
 - Don't use `log.Fatal` or `panic` — use `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)`
 - Don't use UTC for day boundaries — use `time.Date(...)` with `now.Location()` for local midnight
 - Don't add JSON tags to `Bucket` — it's never directly marshalled; `printJSON` defines its own output structs

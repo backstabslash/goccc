@@ -243,12 +243,86 @@ func TestCalcCostCacheTiersSeparate(t *testing.T) {
 	assertCost(t, "opus 1h cache", cost2, 1.0)
 }
 
+func withEmbeddedPricing(t *testing.T) {
+	t.Helper()
+	origCachePath := pricingCachePath
+	pricingCachePath = func() string { return "" }
+	initPricing()
+	t.Cleanup(func() {
+		pricingCachePath = origCachePath
+		initPricing()
+	})
+}
+
+func TestResolvePricingFastMode(t *testing.T) {
+	withEmbeddedPricing(t)
+	p := resolvePricing("claude-opus-4-6:fast")
+	if p.Input != 30.0 {
+		t.Errorf("expected fast input=30.0, got %f", p.Input)
+	}
+	if p.Output != 150.0 {
+		t.Errorf("expected fast output=150.0, got %f", p.Output)
+	}
+}
+
+func TestResolvePricingFastModeFamilyPrefix(t *testing.T) {
+	withEmbeddedPricing(t)
+	p := resolvePricing("claude-opus-4-6-20260501:fast")
+	if p.Input != 30.0 {
+		t.Errorf("expected fast input=30.0 via family prefix, got %f", p.Input)
+	}
+}
+
+func TestResolvePricingFastModeNonFastModel(t *testing.T) {
+	withEmbeddedPricing(t)
+	p := resolvePricing("claude-sonnet-4-6:fast")
+	if p.Input != 3.0 {
+		t.Errorf("expected standard input=3.0 (no fast tier for sonnet), got %f", p.Input)
+	}
+}
+
+func TestResolvePricingStandardSpeed(t *testing.T) {
+	withEmbeddedPricing(t)
+	p := resolvePricing("claude-opus-4-6")
+	if p.Input != 5.0 {
+		t.Errorf("expected standard input=5.0, got %f", p.Input)
+	}
+}
+
+func TestCalcCostFastMode(t *testing.T) {
+	withEmbeddedPricing(t)
+	usage := Usage{
+		InputTokens:  100_000,
+		OutputTokens: 100_000,
+	}
+	cost := calcCost("claude-opus-4-6:fast", usage)
+	// 100K input @ $30/M = $3.00, 100K output @ $150/M = $15.00
+	assertCost(t, "fast mode cost", cost, 18.0)
+}
+
+func TestCalcCostFastVsStandard(t *testing.T) {
+	withEmbeddedPricing(t)
+	usage := Usage{
+		InputTokens:  1_000_000,
+		OutputTokens: 1_000_000,
+	}
+	standardCost := calcCost("claude-opus-4-6", usage)
+	fastCost := calcCost("claude-opus-4-6:fast", usage)
+
+	ratio := fastCost / standardCost
+	if ratio < 5.9 || ratio > 6.1 {
+		t.Errorf("expected ~6x ratio, got %.2f (fast=$%.2f, standard=$%.2f)", ratio, fastCost, standardCost)
+	}
+}
+
 func TestShortModel(t *testing.T) {
+	withEmbeddedPricing(t)
 	tests := []struct {
 		input    string
 		expected string
 	}{
 		{"claude-opus-4-6", "Opus 4.6"},
+		{"claude-opus-4-6:fast", "Opus 4.6 ⚡"},
 		{"claude-opus-4-5-20251101", "Opus 4.5"},
 		{"claude-opus-4-1-20250414", "Opus 4.1"},
 		{"claude-sonnet-4-6", "Sonnet 4.6"},

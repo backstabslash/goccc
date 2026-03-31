@@ -60,6 +60,7 @@ type StatuslineContext struct {
 	TodayCost   float64
 	Input       *StatuslineInput
 	MCPNames    []string
+	Branch      string
 	Options     map[string]SegmentOptions
 }
 
@@ -71,6 +72,7 @@ var segmentRegistry = map[string]segmentRenderer{
 	"ctx":          renderCtx,
 	"model":        renderModel,
 	"mcp":          renderMCP,
+	"branch":       renderBranch,
 	"5h":           render5h,
 	"7d":           render7d,
 	"tokens":       renderTokens,
@@ -259,6 +261,14 @@ func renderDuration(ctx *StatuslineContext) string {
 	emoji := segmentEmoji("duration", "⏱️", ctx.Options)
 	label := fmtSessionDuration(d)
 	return fmt.Sprintf("%s %s", emoji, label)
+}
+
+func renderBranch(ctx *StatuslineContext) string {
+	if ctx.Branch == "" {
+		return ""
+	}
+	emoji := segmentEmoji("branch", "🌿", ctx.Options)
+	return fmt.Sprintf("%s %s", emoji, ctx.Branch)
 }
 
 func renderCwd(ctx *StatuslineContext) string {

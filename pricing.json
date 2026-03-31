@@ -12,6 +12,9 @@
     "claude-haiku-3-5":  { "input": 0.80,  "output": 4.00,  "cache_read": 0.08,  "cache_write_5m": 1.00,   "cache_write_1h": 1.60 },
     "claude-haiku-3":    { "input": 0.25,  "output": 1.25,  "cache_read": 0.025, "cache_write_5m": 0.3125, "cache_write_1h": 0.50 }
   },
+  "fast_models": {
+    "claude-opus-4-6": { "input": 30.00, "output": 150.00, "cache_read": 3.00, "cache_write_5m": 37.50, "cache_write_1h": 60.00 }
+  },
   "families": [
     { "prefix": "claude-opus-4-6",   "model": "claude-opus-4-6" },
     { "prefix": "claude-opus-4-5",   "model": "claude-opus-4-5" },
@@ -28,7 +31,8 @@
   ],
   "default_model": "claude-sonnet-4-6",
   "display_names": [
-    { "prefix": "opus-4-6",   "name": "Opus 4.6" },
+    { "prefix": "opus-4-6:fast", "name": "Opus 4.6 ⚡" },
+    { "prefix": "opus-4-6",     "name": "Opus 4.6" },
     { "prefix": "opus-4-5",   "name": "Opus 4.5" },
     { "prefix": "opus-4-1",   "name": "Opus 4.1" },
     { "prefix": "opus-4",     "name": "Opus 4" },

@@ -301,7 +301,7 @@ func TestFormatStatusline(t *testing.T) {
 			input.Model.ID = tt.modelID
 			input.ContextWindow.UsedPercentage = tt.ctxPct
 
-			result := formatStatusline(tt.sCost, tt.tCost, input, nil)
+			result := formatStatusline(tt.sCost, tt.tCost, input, nil, "")
 			for _, sub := range tt.wantSub {
 				if !strings.Contains(result, sub) {
 					t.Errorf("output %q missing substring %q", result, sub)
@@ -327,7 +327,7 @@ func TestFormatStatusline_With5h(t *testing.T) {
 		UsedPercentage: 6, ResetsAt: time.Now().Add(2 * time.Hour).Unix(),
 	}
 
-	result := formatStatusline(1.35, 1.98, input, nil)
+	result := formatStatusline(1.35, 1.98, input, nil, "")
 	if !strings.Contains(result, "🔋 94%") {
 		t.Errorf("output %q missing 5h battery segment", result)
 	}
@@ -348,7 +348,7 @@ func TestFormatStatusline_No5h(t *testing.T) {
 	input.ContextWindow.UsedPercentage = 45.0
 	// RateLimits.FiveHour is nil (API billing)
 
-	result := formatStatusline(0.50, 2.00, input, nil)
+	result := formatStatusline(0.50, 2.00, input, nil, "")
 	if strings.Contains(result, "🔋") || strings.Contains(result, "🪫") {
 		t.Errorf("output %q should not contain battery when FiveHour is nil", result)
 	}
@@ -362,7 +362,7 @@ func TestFormatStatusline_WithMCPs(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	result := formatStatusline(0.50, 2.00, input, []string{"github", "jira", "slack"})
+	result := formatStatusline(0.50, 2.00, input, []string{"github", "jira", "slack"}, "")
 	if !strings.Contains(result, "🔌 3 MCPs (github, jira, slack)") {
 		t.Errorf("output %q missing MCP section", result)
 	}
@@ -379,7 +379,7 @@ func TestFormatStatusline_SingleMCP(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	result := formatStatusline(0.50, 2.00, input, []string{"context7"})
+	result := formatStatusline(0.50, 2.00, input, []string{"context7"}, "")
 	if !strings.Contains(result, "🔌 1 MCP (context7)") {
 		t.Errorf("output %q missing singular MCP section", result)
 	}
@@ -393,12 +393,12 @@ func TestFormatStatusline_NoMCPs(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	result := formatStatusline(0.50, 2.00, input, nil)
+	result := formatStatusline(0.50, 2.00, input, nil, "")
 	if strings.Contains(result, "🔌") {
 		t.Errorf("output %q should not contain MCP section when no MCPs", result)
 	}
 
-	result2 := formatStatusline(0.50, 2.00, input, []string{})
+	result2 := formatStatusline(0.50, 2.00, input, []string{}, "")
 	if strings.Contains(result2, "🔌") {
 		t.Errorf("output %q should not contain MCP section for empty slice", result2)
 	}
@@ -413,7 +413,7 @@ func TestFormatStatusline_ManyMCPsTruncated(t *testing.T) {
 	input.ContextWindow.UsedPercentage = 45.0
 
 	mcps := []string{"asana", "context7", "firebase", "github", "jira"}
-	result := formatStatusline(0.50, 2.00, input, mcps)
+	result := formatStatusline(0.50, 2.00, input, mcps, "")
 	if !strings.Contains(result, "🔌 5 MCPs (asana, context7, firebase, ...)") {
 		t.Errorf("output %q missing truncated MCP section", result)
 	}
@@ -434,6 +434,29 @@ func TestParseSession_Fixture(t *testing.T) {
 	// Opus: 1.2485 + Haiku: 0.057625 = 1.306125
 	if math.Abs(cost-1.306125) > 0.000001 {
 		t.Errorf("sessionCost = %.6f, want 1.306125", cost)
+	}
+}
+
+func TestSessionBranch(t *testing.T) {
+	now := time.Now()
+	deduped := map[string]*dedupRecord{
+		"req_1": {Branch: "main", Timestamp: now.Add(-2 * time.Minute)},
+		"req_2": {Branch: "feature/auth", Timestamp: now.Add(-1 * time.Minute)},
+		"req_3": {Branch: "(no branch)", Timestamp: now},
+	}
+	got := sessionBranch(deduped)
+	if got != "feature/auth" {
+		t.Errorf("sessionBranch = %q, want %q", got, "feature/auth")
+	}
+}
+
+func TestSessionBranch_Empty(t *testing.T) {
+	deduped := map[string]*dedupRecord{
+		"req_1": {Branch: "(no branch)", Timestamp: time.Now()},
+	}
+	got := sessionBranch(deduped)
+	if got != "" {
+		t.Errorf("sessionBranch = %q, want empty", got)
 	}
 }
 

@@ -57,6 +57,33 @@ func makeRecord(requestID, model, timestamp string, input, output, cacheRead, ca
 	return makeRecordWithBranch(requestID, model, timestamp, input, output, cacheRead, cacheWrite5m, cacheWrite1h, "")
 }
 
+func makeRecordWithSpeed(requestID, model, timestamp string, input, output int, speed string) string {
+	type usage struct {
+		InputTokens  int    `json:"input_tokens"`
+		OutputTokens int    `json:"output_tokens"`
+		Speed        string `json:"speed,omitempty"`
+	}
+	type message struct {
+		Model string `json:"model"`
+		Role  string `json:"role"`
+		Usage usage  `json:"usage"`
+	}
+	type record struct {
+		Type      string  `json:"type"`
+		RequestID string  `json:"requestId"`
+		Timestamp string  `json:"timestamp"`
+		Message   message `json:"message"`
+	}
+	rec := record{
+		Type: "assistant", RequestID: requestID, Timestamp: timestamp,
+		Message: message{Model: model, Role: "assistant", Usage: usage{
+			InputTokens: input, OutputTokens: output, Speed: speed,
+		}},
+	}
+	b, _ := json.Marshal(rec)
+	return string(b)
+}
+
 func makeUserRecord(timestamp string) string {
 	return fmt.Sprintf(`{"type":"user","message":{"role":"user","content":"hello"},"timestamp":%q}`, timestamp)
 }
@@ -640,6 +667,54 @@ func TestBranchAggregation_NoBranch(t *testing.T) {
 	}
 	if proj["(no branch)"]["claude-opus-4-6"].Requests != 1 {
 		t.Error("wrong (no branch) request count")
+	}
+}
+
+func TestFastModeSeparateBucket(t *testing.T) {
+	withEmbeddedPricing(t)
+	base := setupProject(t, "test-project", []string{
+		makeRecordWithSpeed("req_1", "claude-opus-4-6", ts(0, 10), 100_000, 50_000, "standard"),
+		makeRecordWithSpeed("req_2", "claude-opus-4-6", ts(0, 11), 100_000, 50_000, "fast"),
+		makeRecordWithSpeed("req_3", "claude-opus-4-6", ts(0, 12), 100_000, 50_000, ""),
+	})
+	data, err := parseLogs(base, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(data.ModelUsage) != 2 {
+		t.Errorf("expected 2 model buckets (standard + fast), got %d", len(data.ModelUsage))
+	}
+	standard := data.ModelUsage["claude-opus-4-6"]
+	if standard == nil {
+		t.Fatal("missing standard bucket")
+	}
+	if standard.Requests != 2 {
+		t.Errorf("expected 2 standard requests, got %d", standard.Requests)
+	}
+	fast := data.ModelUsage["claude-opus-4-6:fast"]
+	if fast == nil {
+		t.Fatal("missing fast bucket")
+	}
+	if fast.Requests != 1 {
+		t.Errorf("expected 1 fast request, got %d", fast.Requests)
+	}
+
+	// Verify fast costs 6x more than standard for same tokens
+	if fast.Cost == 0 {
+		t.Error("fast cost should not be zero")
+	}
+	ratio := fast.Cost / (standard.Cost / 2) // per-request comparison
+	if ratio < 5.9 || ratio > 6.1 {
+		t.Errorf("expected ~6x ratio, got %.2f", ratio)
+	}
+}
+
+func TestFastModeDisplayName(t *testing.T) {
+	withEmbeddedPricing(t)
+	got := shortModel("claude-opus-4-6:fast")
+	if got != "Opus 4.6 ⚡" {
+		t.Errorf("shortModel for fast = %q, want %q", got, "Opus 4.6 ⚡")
 	}
 }
 

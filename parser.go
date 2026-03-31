@@ -57,6 +57,13 @@ type dedupRecord struct {
 	Timestamp time.Time
 }
 
+func fastSuffix(speed string) string {
+	if speed == "fast" {
+		return ":fast"
+	}
+	return ""
+}
+
 func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr string, ts time.Time, skip bool, parseErr bool) {
 	if timestamp == "" {
 		if hasCutoff {
@@ -121,13 +128,14 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			branch = "(no branch)"
 		}
 
+		model := rec.Message.Model + fastSuffix(usage.Speed)
 		requestID := rec.RequestID
 		if requestID == "" {
 			requestID = fmt.Sprintf("_noid_%s_%d", filepath.Base(path), rawCount)
 		}
 
 		deduped[requestID] = &dedupRecord{
-			Model:     rec.Message.Model,
+			Model:     model,
 			Project:   projectSlug,
 			Date:      dateStr,
 			Branch:    branch,

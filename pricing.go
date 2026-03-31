@@ -28,6 +28,7 @@ var embeddedPricingJSON []byte
 
 type PricingData struct {
 	Models               map[string]ModelPricing `json:"models"`
+	FastModels           map[string]ModelPricing `json:"fast_models,omitempty"`
 	Families             []PricingFamily         `json:"families"`
 	DefaultModel         string                  `json:"default_model"`
 	DisplayNames         []PricingDisplayName    `json:"display_names"`
@@ -47,6 +48,7 @@ type PricingDisplayName struct {
 
 var (
 	pricingTable           map[string]ModelPricing
+	fastPricingTable       map[string]ModelPricing
 	familyPrefixes         []PricingFamily
 	defaultPricing         ModelPricing
 	displayNames           []PricingDisplayName
@@ -100,6 +102,15 @@ func applyPricing(pd *PricingData) {
 		fillCacheDefaults(&p)
 		pricingTable[k] = p
 	}
+	if pd.FastModels != nil {
+		fastPricingTable = pd.FastModels
+	} else {
+		fastPricingTable = make(map[string]ModelPricing)
+	}
+	for k, p := range fastPricingTable {
+		fillCacheDefaults(&p)
+		fastPricingTable[k] = p
+	}
 	familyPrefixes = pd.Families
 	sort.Slice(familyPrefixes, func(i, j int) bool {
 		return len(familyPrefixes[i].Prefix) > len(familyPrefixes[j].Prefix)
@@ -138,18 +149,32 @@ func initPricing() {
 	applyPricing(pd)
 }
 
-func resolvePricing(model string) ModelPricing {
+func resolveBaseModel(model string) (string, ModelPricing) {
 	if p, ok := pricingTable[model]; ok {
-		return p
+		return model, p
 	}
 	for _, fp := range familyPrefixes {
 		if strings.HasPrefix(model, fp.Prefix) {
 			if p, ok := pricingTable[fp.Model]; ok {
-				return p
+				return fp.Model, p
 			}
 		}
 	}
-	return defaultPricing
+	return "", defaultPricing
+}
+
+func resolvePricing(model string) ModelPricing {
+	baseModel, isFast := strings.CutSuffix(model, ":fast")
+	resolved, fallback := resolveBaseModel(baseModel)
+	if isFast && len(fastPricingTable) > 0 {
+		if p, ok := fastPricingTable[resolved]; ok {
+			return p
+		}
+		if p, ok := fastPricingTable[baseModel]; ok {
+			return p
+		}
+	}
+	return fallback
 }
 
 type CacheCreation struct {
@@ -168,6 +193,7 @@ type Usage struct {
 	CacheCreationInputTokens int            `json:"cache_creation_input_tokens"`
 	CacheCreation            *CacheCreation `json:"cache_creation,omitempty"`
 	ServerToolUse            *ServerToolUse `json:"server_tool_use,omitempty"`
+	Speed                    string         `json:"speed,omitempty"`
 }
 
 func (u Usage) TotalInputTokens() int {
@@ -234,7 +260,11 @@ func calcCost(model string, usage Usage) float64 {
 }
 
 func shortModel(model string) string {
-	m := strings.TrimPrefix(strings.ToLower(model), "claude-")
+	base, isFast := strings.CutSuffix(model, ":fast")
+	m := strings.TrimPrefix(strings.ToLower(base), "claude-")
+	if isFast {
+		m += ":fast"
+	}
 	for _, dn := range displayNames {
 		if strings.HasPrefix(m, dn.Prefix) {
 			return dn.Name

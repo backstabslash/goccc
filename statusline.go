@@ -106,17 +106,30 @@ func sessionCost(deduped map[string]*dedupRecord) float64 {
 	return total
 }
 
-func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []string) string {
-	return formatStatuslineWithConfig(sCost, tCost, input, mcpNames, nil)
+func sessionBranch(deduped map[string]*dedupRecord) string {
+	var latest time.Time
+	var branch string
+	for _, r := range deduped {
+		if r.Branch != "" && r.Branch != "(no branch)" && r.Timestamp.After(latest) {
+			latest = r.Timestamp
+			branch = r.Branch
+		}
+	}
+	return branch
 }
 
-func formatStatuslineWithConfig(sCost, tCost float64, input *StatuslineInput, mcpNames []string, cfg *StatuslineConfig) string {
+func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []string, branch string) string {
+	return formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, nil)
+}
+
+func formatStatuslineWithConfig(sCost, tCost float64, input *StatuslineInput, mcpNames []string, branch string, cfg *StatuslineConfig) string {
 	segments, sep, opts := resolveStatuslineConfig(cfg)
 	ctx := &StatuslineContext{
 		SessionCost: sCost,
 		TodayCost:   tCost,
 		Input:       input,
 		MCPNames:    mcpNames,
+		Branch:      branch,
 		Options:     opts,
 	}
 	return assembleStatusline(segments, sep, ctx)
@@ -135,10 +148,12 @@ func runStatusline(baseDir string) {
 	segments, _, _ := resolveStatuslineConfig(cfg.Statusline)
 
 	var sCost float64
+	var branch string
 	if input.TranscriptPath != "" {
 		deduped, err := parseSession(input.TranscriptPath)
 		if err == nil {
 			sCost = sessionCost(deduped)
+			branch = sessionBranch(deduped)
 		} else {
 			sCost = input.Cost.TotalCostUSD
 		}
@@ -158,7 +173,7 @@ func runStatusline(baseDir string) {
 		mcpNames = detectMCPs(baseDir, input.TranscriptPath)
 	}
 
-	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, cfg.Statusline))
+	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, cfg.Statusline))
 }
 
 func hasSegment(segments []string, name string) bool {
