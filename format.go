@@ -126,17 +126,25 @@ type jsonModelRow struct {
 }
 
 type jsonDailyRow struct {
-	Date     string  `json:"date"`
-	Model    string  `json:"model"`
-	Requests int     `json:"requests"`
-	Cost     float64 `json:"cost"`
+	Date         string  `json:"date"`
+	Model        string  `json:"model"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CacheRead    int     `json:"cache_read_tokens"`
+	CacheWrite   int     `json:"cache_write_tokens"`
+	Requests     int     `json:"requests"`
+	Cost         float64 `json:"cost"`
 }
 
 type jsonMonthlyRow struct {
-	Month    string  `json:"month"`
-	Model    string  `json:"model"`
-	Requests int     `json:"requests"`
-	Cost     float64 `json:"cost"`
+	Month        string  `json:"month"`
+	Model        string  `json:"model"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CacheRead    int     `json:"cache_read_tokens"`
+	CacheWrite   int     `json:"cache_write_tokens"`
+	Requests     int     `json:"requests"`
+	Cost         float64 `json:"cost"`
 }
 
 type jsonProjectRow struct {
@@ -157,7 +165,12 @@ func buildJSONDaily(data *ParseResult) []jsonDailyRow {
 	var daily []jsonDailyRow
 	for date, dayModels := range data.DailyUsage {
 		for model, b := range dayModels {
-			daily = append(daily, jsonDailyRow{Date: date, Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+			daily = append(daily, jsonDailyRow{
+				Date: date, Model: shortModel(model),
+				InputTokens: b.InputTokens, OutputTokens: b.OutputTokens,
+				CacheRead: b.CacheRead, CacheWrite: b.TotalCacheWrite(),
+				Requests: b.Requests, Cost: b.Cost,
+			})
 		}
 	}
 	sort.Slice(daily, func(i, j int) bool {
@@ -174,7 +187,12 @@ func buildJSONMonthly(data *ParseResult) []jsonMonthlyRow {
 	var monthly []jsonMonthlyRow
 	for month, monthModels := range monthlyData {
 		for model, b := range monthModels {
-			monthly = append(monthly, jsonMonthlyRow{Month: month, Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+			monthly = append(monthly, jsonMonthlyRow{
+				Month: month, Model: shortModel(model),
+				InputTokens: b.InputTokens, OutputTokens: b.OutputTokens,
+				CacheRead: b.CacheRead, CacheWrite: b.TotalCacheWrite(),
+				Requests: b.Requests, Cost: b.Cost,
+			})
 		}
 	}
 	sort.Slice(monthly, func(i, j int) bool {
@@ -291,9 +309,9 @@ type modelEntry struct {
 
 func printSummary(data *ParseResult, opts OutputOptions) {
 	fmt.Println()
-	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
+	bold.Println(strings.Repeat("═", 80))
 	bold.Println("  Claude Code Usage Report")
-	bold.Println("═══════════════════════════════════════════════════════════════════════════════")
+	bold.Println(strings.Repeat("═", 80))
 	fmt.Printf("  Parsed %d log files, %d API calls ", data.TotalFiles, data.TotalRecords)
 	dim.Printf("(%s)\n", fmtDuration(data.Duration))
 	if from, to := data.DateRange(); from != "" {
@@ -316,9 +334,9 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	fmt.Println()
 
 	// Model breakdown
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	bold.Println("  MODEL BREAKDOWN")
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	fmt.Printf("  %-16s %9s %9s %9s %9s %7s %10s\n",
 		"Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
@@ -370,11 +388,11 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 
 func printDailyBreakdown(data *ParseResult, opts OutputOptions) {
 
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	bold.Println("  DAILY BREAKDOWN")
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
-	fmt.Printf("  %-12s %-16s %9s %9s %7s %10s\n",
-		"Date", "Model", "Input", "Output", "Reqs", "Cost")
+	bold.Println(strings.Repeat("─", 80))
+	fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6s %8s\n",
+		"Date", "Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
 
 	var dates []string
@@ -406,14 +424,15 @@ func printDailyBreakdown(data *ParseResult, opts OutputOptions) {
 			if first {
 				d = date
 			}
-			fmt.Printf("  %-12s %s %9s %9s %7d %s\n",
-				d, cyan.Sprintf("%-16s", shortModel(m.name)),
+			fmt.Printf("  %-12s %s %7s %7s %8s %8s %6d %s\n",
+				d, cyan.Sprintf("%-11s", shortModel(m.name)),
 				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
-				b.Requests, colorCost(b.Cost, 10))
+				fmtTokens(b.CacheRead), fmtTokens(b.TotalCacheWrite()),
+				b.Requests, colorCost(b.Cost, 8))
 			first = false
 		}
-		fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
-			"", "", "", "", dayReqs, colorCost(dayCost, 10))
+		fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6d %s\n",
+			"", "", "", "", "", "", dayReqs, colorCost(dayCost, 8))
 		fmt.Println()
 	}
 }
@@ -441,11 +460,11 @@ func aggregateMonthly(dailyUsage map[string]map[string]*Bucket) map[string]map[s
 
 func printMonthlyBreakdown(data *ParseResult, opts OutputOptions) {
 
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	bold.Println("  MONTHLY BREAKDOWN")
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
-	fmt.Printf("  %-12s %-16s %9s %9s %7s %10s\n",
-		"Month", "Model", "Input", "Output", "Reqs", "Cost")
+	bold.Println(strings.Repeat("─", 80))
+	fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6s %8s\n",
+		"Month", "Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
 
 	monthly := aggregateMonthly(data.DailyUsage)
@@ -479,23 +498,24 @@ func printMonthlyBreakdown(data *ParseResult, opts OutputOptions) {
 			if first {
 				label = month
 			}
-			fmt.Printf("  %-12s %s %9s %9s %7d %s\n",
-				label, cyan.Sprintf("%-16s", shortModel(m.name)),
+			fmt.Printf("  %-12s %s %7s %7s %8s %8s %6d %s\n",
+				label, cyan.Sprintf("%-11s", shortModel(m.name)),
 				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
-				b.Requests, colorCost(b.Cost, 10))
+				fmtTokens(b.CacheRead), fmtTokens(b.TotalCacheWrite()),
+				b.Requests, colorCost(b.Cost, 8))
 			first = false
 		}
-		fmt.Printf("  %-12s %-16s %9s %9s %7d %s\n",
-			"", "", "", "", monthReqs, colorCost(monthCost, 10))
+		fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6d %s\n",
+			"", "", "", "", "", "", monthReqs, colorCost(monthCost, 8))
 		fmt.Println()
 	}
 }
 
 func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	bold.Println("  PROJECT BREAKDOWN")
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	fmt.Printf("  %-35s %-16s %7s %10s\n",
 		"Project", "Model", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
@@ -550,9 +570,9 @@ func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 
 func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
 
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	bold.Println("  BRANCH BREAKDOWN")
-	bold.Println("───────────────────────────────────────────────────────────────────────────────")
+	bold.Println(strings.Repeat("─", 80))
 	fmt.Printf("  %-30s %-16s %7s %10s\n",
 		"Branch", "Model", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
