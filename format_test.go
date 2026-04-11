@@ -56,8 +56,8 @@ func TestShortProject(t *testing.T) {
 		{"simple-project", "simple/project"},
 		// Double hyphens collapsed
 		{"a--b", "a/b"},
-		// Truncation at 40 chars
-		{"a-very-long-project-name-that-exceeds-the-forty-character-limit", "...hat-exceeds-the-forty-character-limit"},
+		// Long names preserved
+		{"a-very-long-project-name-that-exceeds-the-forty-character-limit", "a/very-long-project-name-that-exceeds-the-forty-character-limit"},
 		// Empty slug returns original
 		{"", ""},
 	}
@@ -65,6 +65,32 @@ func TestShortProject(t *testing.T) {
 		got := shortProject(tt.input)
 		if got != tt.expected {
 			t.Errorf("shortProject(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestWrapName(t *testing.T) {
+	tests := []struct {
+		name     string
+		chunk    int
+		expected []string
+	}{
+		{"short", 10, []string{"short"}},
+		{"abcdefghij", 10, []string{"abcdefghij"}},
+		{"abcdefghijklmnopqrst", 10, []string{"abcdefghij", "klmnopqrst"}},
+		{"abcdefghijklmnopqrstuvwxyz12345", 10, []string{"abcdefghij", "klmnopqrst", "uvwxyz1234", "5"}},
+		{"", 10, nil},
+	}
+	for _, tt := range tests {
+		got := wrapName(tt.name, tt.chunk)
+		if len(got) != len(tt.expected) {
+			t.Errorf("wrapName(%q, %d) len = %d, want %d", tt.name, tt.chunk, len(got), len(tt.expected))
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.expected[i] {
+				t.Errorf("wrapName(%q, %d)[%d] = %q, want %q", tt.name, tt.chunk, i, got[i], tt.expected[i])
+			}
 		}
 	}
 }

@@ -99,10 +99,20 @@ func shortProject(slug string) string {
 	if s == "" {
 		s = slug
 	}
-	if len(s) > 40 {
-		s = "..." + s[len(s)-37:]
-	}
 	return s
+}
+
+func wrapName(name string, chunkSize int) []string {
+	if name == "" {
+		return nil
+	}
+	var chunks []string
+	for len(name) > chunkSize {
+		chunks = append(chunks, name[:chunkSize])
+		name = name[chunkSize:]
+	}
+	chunks = append(chunks, name)
+	return chunks
 }
 
 type OutputOptions struct {
@@ -547,23 +557,26 @@ func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 		}
 		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
 
-		first := true
-		for _, m := range sorted {
-			b := m.bucket
+		names := wrapName(name, 30)
+		for i, m := range sorted {
 			n := ""
-			if first {
-				n = name
-				if len(n) > 35 {
-					n = n[:32] + "..."
-				}
+			if i < len(names) {
+				n = names[i]
 			}
+			b := m.bucket
 			fmt.Printf("  %-35s %s %7d %s\n",
 				n, cyan.Sprintf("%-16s", shortModel(m.name)),
 				b.Requests, colorCost(b.Cost, 10))
-			first = false
+		}
+		for i := len(sorted); i < len(names)-1; i++ {
+			fmt.Printf("  %s\n", names[i])
+		}
+		subtotalName := ""
+		if len(names) > len(sorted) {
+			subtotalName = names[len(names)-1]
 		}
 		fmt.Printf("  %-35s %-16s %7s %s\n",
-			"", "SUBTOTAL", "", colorCost(proj.total, 10))
+			subtotalName, "SUBTOTAL", "", colorCost(proj.total, 10))
 		fmt.Println()
 	}
 }
@@ -604,23 +617,26 @@ func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
 			}
 			sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
 
-			firstBranch := true
-			for _, m := range sorted {
-				b := m.bucket
-				bn := ""
-				if firstBranch {
-					bn = br.branch
-					if len(bn) > 30 {
-						bn = bn[:27] + "..."
-					}
+			names := wrapName(br.branch, 25)
+			for i, m := range sorted {
+				n := ""
+				if i < len(names) {
+					n = names[i]
 				}
+				b := m.bucket
 				fmt.Printf("  %-30s %s %7d %s\n",
-					bn, cyan.Sprintf("%-16s", shortModel(m.name)),
+					n, cyan.Sprintf("%-16s", shortModel(m.name)),
 					b.Requests, colorCost(b.Cost, 10))
-				firstBranch = false
+			}
+			for i := len(sorted); i < len(names)-1; i++ {
+				fmt.Printf("  %s\n", names[i])
+			}
+			subtotalName := ""
+			if len(names) > len(sorted) {
+				subtotalName = names[len(names)-1]
 			}
 			fmt.Printf("  %-30s %-16s %7s %s\n",
-				"", "SUBTOTAL", "", colorCost(br.total, 10))
+				subtotalName, "SUBTOTAL", "", colorCost(br.total, 10))
 			fmt.Println()
 		}
 	}
