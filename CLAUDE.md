@@ -42,7 +42,7 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 - **Local timezone everywhere** — local midnight for cutoffs, `parsed.Local()` for date bucketing. Never `UTC()` for user-facing dates
 - **MCP detection is best-effort** — returns nil/empty on error; statusline never fails due to missing config
 - **Config** — `~/.goccc.json` stores currency, thresholds, and statusline config. `initConfig()` loads once. JSON output costs always in USD
-- **Session end hook** — uses `os.Exit(2)` + ANSI escape to overwrite Claude Code's "hook failed" prefix. Silently exits on any error
+- **Session end hook** — writes to `/dev/tty` (bypasses Claude Code's stderr capture), falls back to stderr on Windows. Silently exits on any error
 - **Statusline segments** — registry in `statusline_config.go`. Segments with no data auto-hide. `"|"` forces line break
 
 ## Don't

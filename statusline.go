@@ -307,8 +307,13 @@ func runSessionEnd(baseDir string) {
 	}
 
 	line := formatSessionEnd(sCost, tCost, reqs, dur, models)
-	// ANSI: erase line + carriage return to overwrite Claude Code's
-	// "SessionEnd hook [...] failed: " prefix before our content.
-	fmt.Fprintf(os.Stderr, "\x1b[2K\r\n%s", line)
+	// Write to /dev/tty to bypass Claude Code's stderr capture.
+	// Falls back to stderr for platforms without /dev/tty (Windows).
+	w := os.Stderr
+	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		w = tty
+		defer func() { _ = tty.Close() }()
+	}
+	_, _ = fmt.Fprintf(w, "\x1b[2K\r\n%s\n", line)
 	os.Exit(2)
 }
