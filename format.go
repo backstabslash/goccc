@@ -14,6 +14,21 @@ var (
 	costThresholdYellow = 25.0
 )
 
+func fmtCount(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
+}
+
 func fmtTokens(n int) string {
 	switch {
 	case n >= 1_000_000_000:
@@ -641,4 +656,305 @@ func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
 		}
 	}
 	fmt.Println()
+}
+
+func printWrappedList(items []string, maxWidth int) {
+	line := "  "
+	for i, s := range items {
+		entry := s
+		if i < len(items)-1 {
+			entry += ", "
+		}
+		if len(line)+len(entry) > maxWidth {
+			fmt.Println(line)
+			line = "  "
+		}
+		line += entry
+	}
+	if len(line) > 2 {
+		fmt.Println(line)
+	}
+}
+
+func unusedSkills(data *ToolResult) []string {
+	used := make(map[string]bool)
+	for name := range data.SkillCounts {
+		used[name] = true
+	}
+	var unused []string
+	for _, skill := range data.AvailableSkills {
+		if !used[skill] {
+			unused = append(unused, skill)
+		}
+	}
+	return unused
+}
+
+type toolEntry struct {
+	name   string
+	count  int
+	errors int
+	projs  int
+}
+
+func fmtAgentDuration(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	totalSec := int(d.Seconds())
+	if totalSec < 60 {
+		return fmt.Sprintf("%ds", totalSec)
+	}
+	m := totalSec / 60
+	s := totalSec % 60
+	if m < 60 {
+		if s == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	h := m / 60
+	m = m % 60
+	if m == 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+func printAgentBreakdown(data *ToolResult, topN int) {
+	if len(data.AgentCounts) == 0 {
+		return
+	}
+
+	var totalAgents int
+	for _, c := range data.AgentCounts {
+		totalAgents += c
+	}
+
+	bold.Println(strings.Repeat("─", 80))
+	bold.Printf("  AGENT BREAKDOWN (%d spawned, %d unique, %s sessions)\n",
+		totalAgents, len(data.AgentCounts), fmtCount(len(data.AgentSessions)))
+	bold.Println(strings.Repeat("─", 80))
+	fmt.Printf("  %-28s  %12s  %10s  %8s  %10s\n", "Agent Type", "Invocations", "Avg Time", "Total", "Projects")
+	fmt.Println("  " + strings.Repeat("─", 76))
+
+	type agentEntry struct {
+		name      string
+		count     int
+		totalTime time.Duration
+		projs     int
+	}
+
+	var agents []agentEntry
+	for name, count := range data.AgentCounts {
+		agents = append(agents, agentEntry{name, count, data.AgentTotalTime[name], len(data.AgentProjects[name])})
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].count > agents[j].count })
+	if topN > 0 && len(agents) > topN {
+		agents = agents[:topN]
+	}
+
+	for _, a := range agents {
+		avgStr := "-"
+		totalStr := "-"
+		if a.totalTime > 0 {
+			avg := a.totalTime / time.Duration(a.count)
+			avgStr = fmtAgentDuration(avg)
+			totalStr = fmtAgentDuration(a.totalTime)
+		}
+		names := wrapName(a.name, 26)
+		fmt.Printf("  %-28s  %12s  %10s  %8s  %10d\n", names[0], fmtCount(a.count), avgStr, totalStr, a.projs)
+		for _, n := range names[1:] {
+			fmt.Printf("  %s\n", n)
+		}
+	}
+	fmt.Println()
+}
+
+func printSkillBreakdown(data *ToolResult, topN int) {
+	if len(data.SkillCounts) == 0 && len(data.AvailableSkills) == 0 {
+		return
+	}
+
+	var totalSkillInvocations int
+	for _, c := range data.SkillCounts {
+		totalSkillInvocations += c
+	}
+	header := fmt.Sprintf("  SKILL BREAKDOWN (%d invocations, %d unique, %s sessions",
+		totalSkillInvocations, len(data.SkillCounts), fmtCount(len(data.SkillSessions)))
+	if len(data.AvailableSkills) > 0 {
+		header += fmt.Sprintf(", %d available", len(data.AvailableSkills))
+	}
+	header += ")"
+
+	bold.Println(strings.Repeat("─", 80))
+	bold.Println(header)
+	bold.Println(strings.Repeat("─", 80))
+	fmt.Printf("  %-46s  %14s  %12s\n", "Skill", "Invocations", "Projects")
+	fmt.Println("  " + strings.Repeat("─", 76))
+
+	var skills []toolEntry
+	for name, count := range data.SkillCounts {
+		skills = append(skills, toolEntry{name: name, count: count, projs: len(data.SkillProjects[name])})
+	}
+	sort.Slice(skills, func(i, j int) bool { return skills[i].count > skills[j].count })
+	if topN > 0 && len(skills) > topN {
+		skills = skills[:topN]
+	}
+
+	for _, s := range skills {
+		names := wrapName(s.name, 44)
+		fmt.Printf("  %-46s  %14s  %12d\n", names[0], fmtCount(s.count), s.projs)
+		for _, n := range names[1:] {
+			fmt.Printf("  %s\n", n)
+		}
+	}
+	fmt.Println()
+
+	if len(data.AvailableSkills) > 0 {
+		unused := unusedSkills(data)
+		if len(unused) > 0 {
+			fmt.Printf("  %s %d unused skills (0 invocations):\n", yellowString("⚠"), len(unused))
+			printWrappedList(unused, 78)
+			fmt.Println()
+		}
+	}
+}
+
+func printToolUsage(data *ToolResult, topN int) {
+	fmt.Println()
+	bold.Println(strings.Repeat("═", 80))
+	bold.Println("  Tool Usage")
+	bold.Println(strings.Repeat("═", 80))
+	fmt.Printf("  Parsed %d log files ", data.TotalFiles)
+	dim.Printf("(%s)\n", fmtDuration(data.Duration))
+	fmt.Println()
+
+	var totalInvocations int
+	for _, c := range data.ToolCounts {
+		totalInvocations += c
+	}
+	bold.Println(strings.Repeat("─", 80))
+	bold.Printf("  TOOL BREAKDOWN (%s total, %d unique, %s sessions)\n",
+		fmtCount(totalInvocations), len(data.ToolCounts), fmtCount(len(data.ToolSessions)))
+	bold.Println(strings.Repeat("─", 80))
+	fmt.Printf("  %-38s  %12s  %9s  %11s\n", "Tool", "Invocations", "Errors", "Projects")
+	fmt.Println("  " + strings.Repeat("─", 76))
+
+	var tools []toolEntry
+	for name, count := range data.ToolCounts {
+		tools = append(tools, toolEntry{name, count, data.ToolErrors[name], len(data.ToolProjects[name])})
+	}
+	sort.Slice(tools, func(i, j int) bool { return tools[i].count > tools[j].count })
+	if topN > 0 && len(tools) > topN {
+		tools = tools[:topN]
+	}
+
+	for _, t := range tools {
+		errStr := "-"
+		if t.errors > 0 {
+			errStr = fmt.Sprintf("%.1f%%", float64(t.errors)/float64(t.count)*100)
+		}
+		names := wrapName(t.name, 36)
+		fmt.Printf("  %-38s  %12s  %9s  %11d\n", names[0], fmtCount(t.count), errStr, t.projs)
+		for _, n := range names[1:] {
+			fmt.Printf("  %s\n", n)
+		}
+	}
+	fmt.Println()
+
+	printAgentBreakdown(data, topN)
+	printSkillBreakdown(data, topN)
+}
+
+func printToolsJSON(data *ToolResult, topN int) {
+	type jsonToolRow struct {
+		Tool        string  `json:"tool"`
+		Invocations int     `json:"invocations"`
+		Errors      int     `json:"errors"`
+		ErrorRate   float64 `json:"error_rate"`
+		Projects    int     `json:"projects"`
+	}
+	type jsonSkillRow struct {
+		Skill       string `json:"skill"`
+		Invocations int    `json:"invocations"`
+		Projects    int    `json:"projects"`
+	}
+	type jsonAgentRow struct {
+		AgentType   string `json:"agent_type"`
+		Invocations int    `json:"invocations"`
+		AvgTimeMs   int64  `json:"avg_time_ms"`
+		TotalTimeMs int64  `json:"total_time_ms"`
+		Projects    int    `json:"projects"`
+	}
+
+	var tools []jsonToolRow
+	for name, count := range data.ToolCounts {
+		errs := data.ToolErrors[name]
+		rate := 0.0
+		if count > 0 {
+			rate = float64(errs) / float64(count)
+		}
+		tools = append(tools, jsonToolRow{name, count, errs, rate, len(data.ToolProjects[name])})
+	}
+	sort.Slice(tools, func(i, j int) bool { return tools[i].Invocations > tools[j].Invocations })
+	if topN > 0 && len(tools) > topN {
+		tools = tools[:topN]
+	}
+
+	var skills []jsonSkillRow
+	for name, count := range data.SkillCounts {
+		skills = append(skills, jsonSkillRow{name, count, len(data.SkillProjects[name])})
+	}
+	sort.Slice(skills, func(i, j int) bool { return skills[i].Invocations > skills[j].Invocations })
+	if topN > 0 && len(skills) > topN {
+		skills = skills[:topN]
+	}
+
+	var agents []jsonAgentRow
+	for name, count := range data.AgentCounts {
+		totalMs := data.AgentTotalTime[name].Milliseconds()
+		avgMs := int64(0)
+		if count > 0 && totalMs > 0 {
+			avgMs = totalMs / int64(count)
+		}
+		agents = append(agents, jsonAgentRow{name, count, avgMs, totalMs, len(data.AgentProjects[name])})
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].Invocations > agents[j].Invocations })
+	if topN > 0 && len(agents) > topN {
+		agents = agents[:topN]
+	}
+
+	unused := unusedSkills(data)
+
+	out := struct {
+		Tools           []jsonToolRow  `json:"tools"`
+		Agents          []jsonAgentRow `json:"agents,omitempty"`
+		Skills          []jsonSkillRow `json:"skills"`
+		UnusedSkills    []string       `json:"unused_skills,omitempty"`
+		AvailableSkills int            `json:"available_skills"`
+		ToolSessions    int            `json:"tool_sessions"`
+		AgentSessions   int            `json:"agent_sessions"`
+		SkillSessions   int            `json:"skill_sessions"`
+		TotalFiles      int            `json:"total_files"`
+		DurationMs      int64          `json:"duration_ms"`
+	}{
+		Tools:           tools,
+		Agents:          agents,
+		Skills:          skills,
+		UnusedSkills:    unused,
+		AvailableSkills: len(data.AvailableSkills),
+		ToolSessions:    len(data.ToolSessions),
+		AgentSessions:   len(data.AgentSessions),
+		SkillSessions:   len(data.SkillSessions),
+		TotalFiles:      data.TotalFiles,
+		DurationMs:      data.Duration.Milliseconds(),
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", err)
+		os.Exit(1)
+	}
 }

@@ -685,15 +685,15 @@ func TestFastModeSeparateBucket(t *testing.T) {
 	if len(data.ModelUsage) != 2 {
 		t.Errorf("expected 2 model buckets (standard + fast), got %d", len(data.ModelUsage))
 	}
-	standard := data.ModelUsage["claude-opus-4-6"]
-	if standard == nil {
+	standard, ok := data.ModelUsage["claude-opus-4-6"]
+	if !ok || standard == nil {
 		t.Fatal("missing standard bucket")
 	}
 	if standard.Requests != 2 {
 		t.Errorf("expected 2 standard requests, got %d", standard.Requests)
 	}
-	fast := data.ModelUsage["claude-opus-4-6:fast"]
-	if fast == nil {
+	fast, ok := data.ModelUsage["claude-opus-4-6:fast"]
+	if !ok || fast == nil {
 		t.Fatal("missing fast bucket")
 	}
 	if fast.Requests != 1 {

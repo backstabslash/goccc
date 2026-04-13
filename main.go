@@ -55,6 +55,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version")
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 	sessionEnd := flag.Bool("session-end", false, "Session end hook mode: read SessionEnd JSON from stdin, print cost summary")
+	tools := flag.Bool("tools", false, "Show tool and skill usage analytics")
 	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
 	currencyRateFlag := flag.Float64("currency-rate", 0, "Override exchange rate from USD (requires -currency-symbol)")
 
@@ -75,7 +76,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  goccc -days 1                  Today's usage\n")
 		fmt.Fprintf(os.Stderr, "  goccc -monthly                 Monthly cost summary\n")
 		fmt.Fprintf(os.Stderr, "  goccc -project webapp -daily   Filter by project with daily breakdown\n")
-		fmt.Fprintf(os.Stderr, "  goccc -json | jq '.summary'    JSON output for scripting\n\n")
+		fmt.Fprintf(os.Stderr, "  goccc -json | jq '.summary'    JSON output for scripting\n")
+		fmt.Fprintf(os.Stderr, "  goccc -tools -days 30           Tool & skill usage analytics\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 	}
@@ -105,6 +107,11 @@ func main() {
 
 	if *sessionEnd {
 		runSessionEnd(*baseDir)
+		return
+	}
+
+	if *tools {
+		runToolUsage(*baseDir, *days, *project, *topN, *jsonOutput)
 		return
 	}
 

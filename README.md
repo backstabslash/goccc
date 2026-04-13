@@ -4,7 +4,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/backstabslash/goccc?color=blue)](https://github.com/backstabslash/goccc/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A fast, zero-dependency CLI cost calculator and [customizable statusline](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview). Breakdowns by model, day, project, and branch. Single binary, no runtime needed.
+A fast, zero-dependency CLI cost calculator, [tool analytics](#tool--skill-analytics), and [customizable statusline](#claude-code-statusline) for [Claude Code](https://code.claude.com/docs/en/overview). Breakdowns by model, day, project, and branch. Single binary, no runtime needed.
 
 ![demo](https://github.com/user-attachments/assets/a65fc389-951d-47bc-9a69-5f498f3c1d32)
 
@@ -14,6 +14,7 @@ A fast, zero-dependency CLI cost calculator and [customizable statusline](#claud
 - [Usage](#usage)
 - [Claude Code Statusline](#claude-code-statusline)
 - [Session Exit Hook](#session-exit-hook)
+- [Tool & Skill Analytics](#tool--skill-analytics)
 - [Configuration](#configuration)
 - [Flags](#flags)
 - [Preserving Log History](#preserving-log-history)
@@ -58,6 +59,8 @@ goccc -projects -top 5             # Top 5 most expensive projects
 goccc -days 30 -all -json          # JSON output for scripting
 goccc -json | jq '.summary.total_cost'  # Pipe to jq for custom analysis
 goccc -currency-symbol "€" -currency-rate 0.92  # One-off currency override
+goccc -tools -days 30             # Tool & skill usage analytics
+goccc -tools -project myapp -json # Tool analytics filtered by project, as JSON
 ```
 
 ## Claude Code Statusline
@@ -172,6 +175,53 @@ Add to `~/.claude/settings.json`:
 
 The hook runs within Claude Code's 1.5-second timeout. If anything fails, it exits silently — it will never break session teardown.
 
+## Tool & Skill Analytics
+
+The `-tools` flag shows how often each tool and skill was invoked across your sessions — useful for understanding your workflow patterns, auditing MCP tool usage, and spotting unused skills.
+
+```bash
+goccc -tools                    # All-time tool usage
+goccc -tools -days 7            # Last 7 days
+goccc -tools -project myapp     # Filter by project
+goccc -tools -top 5             # Top 5 in each breakdown
+goccc -tools -json              # JSON output for scripting
+```
+
+```text
+────────────────────────────────────────────────────────────────────────────────
+  TOOL BREAKDOWN (3,960 total, 24 unique, 82 sessions)
+────────────────────────────────────────────────────────────────────────────────
+  Tool                                     Invocations     Errors     Projects
+  ────────────────────────────────────────────────────────────────────────────
+  Bash                                           1,373       5.1%           12
+  Read                                           1,231       4.3%           13
+  Edit                                             459       2.4%            9
+  ...
+
+────────────────────────────────────────────────────────────────────────────────
+  AGENT BREAKDOWN (83 spawned, 5 unique, 33 sessions)
+────────────────────────────────────────────────────────────────────────────────
+  Agent Type                     Invocations    Avg Time     Total    Projects
+  ────────────────────────────────────────────────────────────────────────────
+  Explore                                 46      2m 39s     2h 2m           8
+  general-purpose                         29       4m 8s        2h           6
+  ...
+
+────────────────────────────────────────────────────────────────────────────────
+  SKILL BREAKDOWN (32 invocations, 13 unique, 24 sessions, 46 available)
+────────────────────────────────────────────────────────────────────────────────
+  Skill                                              Invocations      Projects
+  ────────────────────────────────────────────────────────────────────────────
+  superpowers:brainstorming                                   14             7
+  review-diff                                                  1             1
+  ...
+
+  ⚠ 37 unused skills (0 invocations):
+    update-config, create-prd, ...
+```
+
+Supports all the same filtering flags (`-days`, `-project`) and output modes (`-json`) as the cost report.
+
 ## Configuration
 
 All configuration lives in `~/.goccc.json`. Every field is optional.
@@ -200,6 +250,7 @@ JSON output always reports costs in USD, with a `currency` metadata object when 
 | `-projects` | — | `false` | Show per-project breakdown |
 | `-all` | — | `false` | Show all breakdowns (daily + projects) |
 | `-top` | `-n` | `0` | Max entries in breakdowns (0 = all) |
+| `-tools` | — | `false` | Show tool and skill usage analytics |
 | `-json` | — | `false` | Output as JSON |
 | `-no-color` | — | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | — | `~/.claude` | Base directory for Claude Code data |
