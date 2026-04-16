@@ -110,6 +110,43 @@ func TestResolvePricingFallback(t *testing.T) {
 	}
 }
 
+// A future versioned model (higher than any known) should fall back to the
+// newest model in its family, not the oldest.
+func TestResolvePricingUnknownFutureVersion(t *testing.T) {
+	withEmbeddedPricing(t)
+	// Hypothetical Opus 4.9 — should price like the latest known Opus 4.x ($5/$25),
+	// not like Opus 4.1 ($15/$75) or Opus 4 ($15/$75).
+	p := resolvePricing("claude-opus-4-9-20270101")
+	if p.Input != 5.0 {
+		t.Errorf("expected input=5.0 (newest opus-4.x fallback), got %f", p.Input)
+	}
+	if p.Output != 25.0 {
+		t.Errorf("expected output=25.0, got %f", p.Output)
+	}
+}
+
+// Original Opus 4 (no minor version, just a date stamp) must still resolve to
+// Opus 4.1 pricing — its version is lower than any 4.x in the table.
+func TestResolvePricingOriginalOpus4(t *testing.T) {
+	withEmbeddedPricing(t)
+	p := resolvePricing("claude-opus-4-20250514")
+	if p.Input != 15.0 {
+		t.Errorf("expected input=15.0 (opus 4 original), got %f", p.Input)
+	}
+	if p.Output != 75.0 {
+		t.Errorf("expected output=75.0, got %f", p.Output)
+	}
+}
+
+// Future Sonnet 4.7 should fall back to the newest Sonnet 4.x pricing.
+func TestResolvePricingUnknownFutureSonnet(t *testing.T) {
+	withEmbeddedPricing(t)
+	p := resolvePricing("claude-sonnet-4-9-20270101")
+	if p.Input != 3.0 {
+		t.Errorf("expected input=3.0 (sonnet-4.x fallback), got %f", p.Input)
+	}
+}
+
 func TestCalcCostBasic(t *testing.T) {
 	usage := Usage{
 		InputTokens:              100_000,

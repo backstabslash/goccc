@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -154,13 +155,38 @@ func resolveBaseModel(model string) (string, ModelPricing) {
 		return model, p
 	}
 	for _, fp := range familyPrefixes {
-		if strings.HasPrefix(model, fp.Prefix) {
-			if p, ok := pricingTable[fp.Model]; ok {
-				return fp.Model, p
+		if !strings.HasPrefix(model, fp.Prefix) {
+			continue
+		}
+		pick := fp.Model
+		if minorAfter(model, fp.Prefix) > minorAfter(fp.Model, fp.Prefix) {
+			bestV := -1
+			for k := range pricingTable {
+				if !strings.HasPrefix(k, fp.Prefix) {
+					continue
+				}
+				if v := minorAfter(k, fp.Prefix); v > bestV {
+					bestV, pick = v, k
+				}
 			}
+		}
+		if p, ok := pricingTable[pick]; ok {
+			return pick, p
 		}
 	}
 	return "", defaultPricing
+}
+
+func minorAfter(model, prefix string) int {
+	rest := strings.TrimPrefix(strings.TrimPrefix(model, prefix), "-")
+	if i := strings.IndexByte(rest, '-'); i >= 0 {
+		rest = rest[:i]
+	}
+	if len(rest) >= 8 {
+		return 0
+	}
+	n, _ := strconv.Atoi(rest)
+	return n
 }
 
 func resolvePricing(model string) ModelPricing {
