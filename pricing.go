@@ -132,6 +132,8 @@ func applyPricing(pd *PricingData) {
 }
 
 func initPricing() {
+	defer func() { go refreshPricingCache() }()
+
 	cached := pricingCachePath()
 	if cached != "" {
 		if data, err := os.ReadFile(cached); err == nil {
