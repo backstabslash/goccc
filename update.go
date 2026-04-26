@@ -45,8 +45,6 @@ func refreshPricingCache() {
 	if info, err := os.Stat(cached); err == nil && time.Since(info.ModTime()) < updateCheckInterval {
 		return
 	}
-	now := time.Now()
-	_ = os.Chtimes(cached, now, now)
 	client := &http.Client{Timeout: updateCheckTimeout}
 	fetchAndCachePricing(cached, client)
 }
