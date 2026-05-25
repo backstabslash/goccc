@@ -31,6 +31,7 @@ type ParseResult struct {
 	DailyUsage   map[string]map[string]*Bucket
 	ProjectUsage map[string]map[string]*Bucket
 	BranchUsage  map[string]map[string]map[string]*Bucket
+	ProjectPaths map[string]string
 	TotalFiles   int
 	TotalRecords int
 	ParseErrors  int
@@ -42,6 +43,7 @@ type jsonRecord struct {
 	RequestID string `json:"requestId"`
 	Timestamp string `json:"timestamp"`
 	GitBranch string `json:"gitBranch"`
+	Cwd       string `json:"cwd"`
 	Message   struct {
 		Model string `json:"model"`
 		Usage *Usage `json:"usage"`
@@ -64,6 +66,15 @@ func fastSuffix(speed string) string {
 	return ""
 }
 
+func captureCwd(paths map[string]string, slug, cwd string) {
+	if paths == nil || cwd == "" {
+		return
+	}
+	if _, ok := paths[slug]; !ok {
+		paths[slug] = cwd
+	}
+}
+
 func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr string, ts time.Time, skip bool, parseErr bool) {
 	if timestamp == "" {
 		if hasCutoff {
@@ -81,7 +92,7 @@ func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr s
 	return parsed.Local().Format("2006-01-02"), parsed, false, false
 }
 
-func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord) (rawCount, parseErrs int, fileErr error) {
+func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord, projectPaths map[string]string) (rawCount, parseErrs int, fileErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0, err
@@ -120,6 +131,8 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
+		captureCwd(projectPaths, projectSlug, rec.Cwd)
+
 		rawCount++
 		usage := *rec.Message.Usage
 
@@ -150,13 +163,14 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 }
 
 type logWalker struct {
-	projectsDir string
-	matchedSlug string
-	hasCutoff   bool
-	cutoff      time.Time
-	deduped     map[string]*dedupRecord
-	totalFiles  int
-	parseErrors int
+	projectsDir  string
+	matchedSlug  string
+	hasCutoff    bool
+	cutoff       time.Time
+	deduped      map[string]*dedupRecord
+	projectPaths map[string]string
+	totalFiles   int
+	parseErrors  int
 }
 
 func (w *logWalker) walk(path string, d fs.DirEntry, err error) error {
@@ -197,7 +211,7 @@ func (w *logWalker) walk(path string, d fs.DirEntry, err error) error {
 	projectSlug := parts[0]
 
 	w.totalFiles++
-	_, pErr, fErr := parseFile(path, w.cutoff, w.hasCutoff, projectSlug, w.deduped)
+	_, pErr, fErr := parseFile(path, w.cutoff, w.hasCutoff, projectSlug, w.deduped, w.projectPaths)
 	if fErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
 		return nil
@@ -225,15 +239,17 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 			DailyUsage:   make(map[string]map[string]*Bucket),
 			ProjectUsage: make(map[string]map[string]*Bucket),
 			BranchUsage:  make(map[string]map[string]map[string]*Bucket),
+			ProjectPaths: make(map[string]string),
 		}, nil
 	}
 
 	w := &logWalker{
-		projectsDir: projectsDir,
-		matchedSlug: matchedSlug,
-		hasCutoff:   days > 0,
-		cutoff:      cutoff,
-		deduped:     make(map[string]*dedupRecord),
+		projectsDir:  projectsDir,
+		matchedSlug:  matchedSlug,
+		hasCutoff:    days > 0,
+		cutoff:       cutoff,
+		deduped:      make(map[string]*dedupRecord),
+		projectPaths: make(map[string]string),
 	}
 
 	if err := filepath.WalkDir(projectsDir, w.walk); err != nil {
@@ -245,6 +261,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 		DailyUsage:   make(map[string]map[string]*Bucket),
 		ProjectUsage: make(map[string]map[string]*Bucket),
 		BranchUsage:  make(map[string]map[string]map[string]*Bucket),
+		ProjectPaths: w.projectPaths,
 		TotalFiles:   w.totalFiles,
 		TotalRecords: len(w.deduped),
 		ParseErrors:  w.parseErrors,

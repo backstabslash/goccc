@@ -91,6 +91,31 @@ func colorCost(c float64, width int) string {
 	return colorize(fmt.Sprintf("%*s", width, s), c)
 }
 
+// Prefer real cwd over slug — slug encoding loses '/' vs '_' vs '.'.
+func displayProject(slug string, paths map[string]string) string {
+	if real := paths[slug]; real != "" {
+		return shortenRealPath(real)
+	}
+	return shortProject(slug)
+}
+
+func shortenRealPath(path string) string {
+	p := strings.ReplaceAll(path, `\`, "/")
+	if len(p) >= 2 && p[1] == ':' {
+		p = p[2:]
+	}
+	p = strings.TrimRight(p, "/")
+	for _, prefix := range []string{"/Users/", "/home/"} {
+		if rest, ok := strings.CutPrefix(p, prefix); ok {
+			if _, after, ok := strings.Cut(rest, "/"); ok && after != "" {
+				return after
+			}
+			return rest
+		}
+	}
+	return p
+}
+
 func shortProject(slug string) string {
 	s := slug
 	for _, prefix := range []string{"-Users-", "-home-"} {
@@ -233,7 +258,7 @@ func buildJSONProjects(data *ParseResult) []jsonProjectRow {
 	var projects []jsonProjectRow
 	for slug, projModels := range data.ProjectUsage {
 		for model, b := range projModels {
-			projects = append(projects, jsonProjectRow{Project: shortProject(slug), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
+			projects = append(projects, jsonProjectRow{Project: displayProject(slug, data.ProjectPaths), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
 		}
 	}
 	sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
@@ -564,7 +589,7 @@ func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 
 	for _, proj := range projects {
 		projModels := data.ProjectUsage[proj.slug]
-		name := shortProject(proj.slug)
+		name := displayProject(proj.slug, data.ProjectPaths)
 
 		var sorted []modelEntry
 		for mname, b := range projModels {

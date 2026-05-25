@@ -70,7 +70,7 @@ func readStatuslineInput(r io.Reader) (*StatuslineInput, error) {
 func parseSession(transcriptPath string) (map[string]*dedupRecord, error) {
 	deduped := make(map[string]*dedupRecord)
 
-	if _, _, err := parseFile(transcriptPath, time.Time{}, false, "", deduped); err != nil {
+	if _, _, err := parseFile(transcriptPath, time.Time{}, false, "", deduped, nil); err != nil {
 		return nil, fmt.Errorf("parsing transcript: %w", err)
 	}
 
@@ -90,7 +90,7 @@ func parseSession(transcriptPath string) (map[string]*dedupRecord, error) {
 			continue
 		}
 		path := filepath.Join(subagentDir, entry.Name())
-		if _, _, err := parseFile(path, time.Time{}, false, "", deduped); err != nil {
+		if _, _, err := parseFile(path, time.Time{}, false, "", deduped, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "goccc: warning: subagent %s: %v\n", entry.Name(), err)
 		}
 	}

@@ -69,6 +69,42 @@ func TestShortProject(t *testing.T) {
 	}
 }
 
+func TestShortenRealPath(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"/Users/john/code/_org/proj", "code/_org/proj"},
+		{"/home/john/code/.tools/sub", "code/.tools/sub"},
+		{"/Users/john", "john"},
+		{"/Users/john/", "john"},
+		{"/opt/project", "/opt/project"},
+		{`C:\Users\john\code\proj`, "code/proj"},
+		{`D:\code\proj`, "/code/proj"},
+	}
+	for _, tt := range tests {
+		got := shortenRealPath(tt.input)
+		if got != tt.expected {
+			t.Errorf("shortenRealPath(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestDisplayProject(t *testing.T) {
+	paths := map[string]string{
+		"-Users-john-code--org-proj": "/Users/john/code/_org/proj",
+	}
+	if got := displayProject("-Users-john-code--org-proj", paths); got != "code/_org/proj" {
+		t.Errorf("with cwd map: got %q, want %q", got, "code/_org/proj")
+	}
+	if got := displayProject("-Users-john-code-other", paths); got != "code/other" {
+		t.Errorf("fallback: got %q, want %q", got, "code/other")
+	}
+	if got := displayProject("-Users-john-code-other", nil); got != "code/other" {
+		t.Errorf("nil map: got %q, want %q", got, "code/other")
+	}
+}
+
 func TestWrapName(t *testing.T) {
 	tests := []struct {
 		name     string
