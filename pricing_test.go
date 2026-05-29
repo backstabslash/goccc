@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestEmbeddedPricingLoads(t *testing.T) {
@@ -289,6 +290,27 @@ func withEmbeddedPricing(t *testing.T) {
 		pricingCachePath = origCachePath
 		initPricing()
 	})
+}
+
+func TestWaitForPricingRefresh(t *testing.T) {
+	orig := pricingRefreshDone
+	t.Cleanup(func() { pricingRefreshDone = orig })
+
+	closed := make(chan struct{})
+	close(closed)
+	pricingRefreshDone = closed
+	start := time.Now()
+	waitForPricingRefresh(time.Second)
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("closed channel: returned after %v, want near-instant", elapsed)
+	}
+
+	pricingRefreshDone = make(chan struct{}) // never closed
+	start = time.Now()
+	waitForPricingRefresh(50 * time.Millisecond)
+	if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
+		t.Errorf("open channel: returned after %v, want >= timeout", elapsed)
+	}
 }
 
 func TestResolvePricingFastMode(t *testing.T) {

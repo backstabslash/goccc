@@ -174,6 +174,11 @@ func runStatusline(baseDir string) {
 	}
 
 	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, cfg.Statusline))
+
+	// Output is already flushed; give the background pricing fetch a brief
+	// window to land before the process exits, so statusline-driven sessions
+	// still pick up pricing updates.
+	waitForPricingRefresh(statuslineRefreshWait)
 }
 
 func hasSegment(segments []string, name string) bool {
@@ -315,5 +320,9 @@ func runSessionEnd(baseDir string) {
 		defer func() { _ = tty.Close() }()
 	}
 	_, _ = fmt.Fprintf(w, "\x1b[2K\r\n%s\n", line)
+
+	// Session end is latency-insensitive, so wait a bit longer for the
+	// background pricing fetch to finish before exiting.
+	waitForPricingRefresh(sessionEndRefreshWait)
 	os.Exit(2)
 }

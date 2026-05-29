@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ModelPricing struct {
@@ -131,8 +132,26 @@ func applyPricing(pd *PricingData) {
 	}
 }
 
+// pricingRefreshDone is closed once the background refresh started by
+// initPricing finishes. Short-lived modes (statusline, session-end) exit as
+// soon as their work is done, which would kill the fire-and-forget fetch
+// before it lands; they wait on this channel briefly so the update isn't lost.
+var pricingRefreshDone chan struct{}
+
+const (
+	statuslineRefreshWait = 1 * time.Second
+	sessionEndRefreshWait = 2 * time.Second
+)
+
 func initPricing() {
-	defer func() { go refreshPricingCache() }()
+	done := make(chan struct{})
+	pricingRefreshDone = done
+	defer func() {
+		go func() {
+			defer close(done)
+			refreshPricingCache()
+		}()
+	}()
 
 	cached := pricingCachePath()
 	if cached != "" {
@@ -150,6 +169,19 @@ func initPricing() {
 		os.Exit(1)
 	}
 	applyPricing(pd)
+}
+
+// waitForPricingRefresh blocks until the background pricing refresh finishes or
+// timeout elapses, whichever comes first. When the cache is still fresh the
+// refresh returns immediately, so this is effectively free on the common path.
+func waitForPricingRefresh(timeout time.Duration) {
+	if pricingRefreshDone == nil {
+		return
+	}
+	select {
+	case <-pricingRefreshDone:
+	case <-time.After(timeout):
+	}
 }
 
 func resolveBaseModel(model string) (string, ModelPricing) {
