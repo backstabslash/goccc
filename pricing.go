@@ -138,22 +138,20 @@ func applyPricing(pd *PricingData) {
 // before it lands; they wait on this channel briefly so the update isn't lost.
 var pricingRefreshDone chan struct{}
 
-const (
-	statuslineRefreshWait = 1 * time.Second
-	sessionEndRefreshWait = 2 * time.Second
-)
+const pricingRefreshWait = 2 * time.Second
 
 func initPricing() {
+	cached := pricingCachePath()
+
 	done := make(chan struct{})
 	pricingRefreshDone = done
 	defer func() {
 		go func() {
 			defer close(done)
-			refreshPricingCache()
+			refreshPricingCache(cached)
 		}()
 	}()
 
-	cached := pricingCachePath()
 	if cached != "" {
 		if data, err := os.ReadFile(cached); err == nil {
 			if pd, err := loadPricingFrom(data); err == nil {
@@ -171,9 +169,9 @@ func initPricing() {
 	applyPricing(pd)
 }
 
-// waitForPricingRefresh blocks until the background pricing refresh finishes or
-// timeout elapses, whichever comes first. When the cache is still fresh the
-// refresh returns immediately, so this is effectively free on the common path.
+// waitForPricingRefresh gives the background refresh a bounded window to land
+// before a short-lived process exits. A fresh cache returns immediately, so
+// this is effectively free on the common path.
 func waitForPricingRefresh(timeout time.Duration) {
 	if pricingRefreshDone == nil {
 		return

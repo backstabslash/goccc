@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -175,19 +176,12 @@ func runStatusline(baseDir string) {
 
 	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, cfg.Statusline))
 
-	// Output is already flushed; give the background pricing fetch a brief
-	// window to land before the process exits, so statusline-driven sessions
-	// still pick up pricing updates.
-	waitForPricingRefresh(statuslineRefreshWait)
+	// Output is flushed; let the background refresh land before exit.
+	waitForPricingRefresh(pricingRefreshWait)
 }
 
 func hasSegment(segments []string, name string) bool {
-	for _, s := range segments {
-		if s == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(segments, name)
 }
 
 type SessionEndInput struct {
@@ -321,8 +315,7 @@ func runSessionEnd(baseDir string) {
 	}
 	_, _ = fmt.Fprintf(w, "\x1b[2K\r\n%s\n", line)
 
-	// Session end is latency-insensitive, so wait a bit longer for the
-	// background pricing fetch to finish before exiting.
-	waitForPricingRefresh(sessionEndRefreshWait)
+	// Let the background refresh land before exit.
+	waitForPricingRefresh(pricingRefreshWait)
 	os.Exit(2)
 }

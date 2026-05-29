@@ -37,8 +37,7 @@ func checkForUpdate(current string) <-chan *updateResult {
 	return ch
 }
 
-func refreshPricingCache() {
-	cached := pricingCachePath()
+func refreshPricingCache(cached string) {
 	if cached == "" {
 		return
 	}
@@ -61,7 +60,6 @@ func doUpdateCheck(current string) *updateResult {
 		if len(parts) == 2 {
 			if ts, err := time.Parse(time.RFC3339, parts[0]); err == nil {
 				if time.Since(ts) < updateCheckInterval {
-					refreshPricingCache()
 					latest := strings.TrimSpace(parts[1])
 					if latest != "" && isNewer(latest, current) {
 						return &updateResult{Latest: latest, Stale: true}
@@ -88,8 +86,6 @@ func doUpdateCheck(current string) *updateResult {
 
 	_ = os.MkdirAll(filepath.Dir(cacheFile), 0o755)
 	_ = os.WriteFile(cacheFile, []byte(time.Now().Format(time.RFC3339)+"\n"+release.TagName+"\n"), 0o644)
-
-	refreshPricingCache()
 
 	if isNewer(release.TagName, current) {
 		return &updateResult{Latest: release.TagName, Stale: true}
