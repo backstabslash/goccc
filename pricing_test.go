@@ -302,6 +302,19 @@ func TestResolvePricingFastMode(t *testing.T) {
 	}
 }
 
+// Opus 4.8: its fast rate ($10/$50) is lower than older Opus fast tiers ($30/$150).
+func TestResolvePricingLatestOpus(t *testing.T) {
+	withEmbeddedPricing(t)
+	std := resolvePricing("claude-opus-4-8")
+	if std.Input != 5.0 || std.Output != 25.0 {
+		t.Errorf("standard: expected 5/25, got %g/%g", std.Input, std.Output)
+	}
+	fast := resolvePricing("claude-opus-4-8:fast")
+	if fast.Input != 10.0 || fast.Output != 50.0 {
+		t.Errorf("fast: expected 10/50, got %g/%g", fast.Input, fast.Output)
+	}
+}
+
 func TestResolvePricingFastModeFamilyPrefix(t *testing.T) {
 	withEmbeddedPricing(t)
 	p := resolvePricing("claude-opus-4-6-20260501:fast")
@@ -358,6 +371,8 @@ func TestShortModel(t *testing.T) {
 		input    string
 		expected string
 	}{
+		{"claude-opus-4-8", "Opus 4.8"},
+		{"claude-opus-4-8:fast", "Opus 4.8 ⚡"},
 		{"claude-opus-4-6", "Opus 4.6"},
 		{"claude-opus-4-6:fast", "Opus 4.6 ⚡"},
 		{"claude-opus-4-5-20251101", "Opus 4.5"},
