@@ -25,7 +25,7 @@ make check
 
 ## JSONL Log Format
 
-Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<uuid>.jsonl` with subagents in `<uuid>/subagents/agent-<id>.jsonl`.
+Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<uuid>.jsonl` with subagents in `<uuid>/subagents/agent-<id>.jsonl`. Workflow-spawned agents nest deeper, under `<uuid>/subagents/workflows/wf_*/agent-<id>.jsonl`.
 
 - Only `type: "assistant"` entries carry `message.model` and `message.usage` — skip all others
 - `output_tokens` already includes thinking tokens — no separate counter

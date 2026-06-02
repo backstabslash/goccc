@@ -169,9 +169,8 @@ func initPricing() {
 	applyPricing(pd)
 }
 
-// waitForPricingRefresh gives the background refresh a bounded window to land
-// before a short-lived process exits. A fresh cache returns immediately, so
-// this is effectively free on the common path.
+// waitForPricingRefresh blocks up to timeout for the background refresh to land.
+// A fresh cache returns immediately, so this is effectively free on the common path.
 func waitForPricingRefresh(timeout time.Duration) {
 	if pricingRefreshDone == nil {
 		return

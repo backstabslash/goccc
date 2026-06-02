@@ -193,6 +193,42 @@ func TestParseSession_WithSubagents(t *testing.T) {
 	}
 }
 
+func TestParseSession_NestedWorkflowSubagents(t *testing.T) {
+	dir := t.TempDir()
+	transcript := filepath.Join(dir, "abc123.jsonl")
+	main := makeRecord("req_main", "claude-opus-4-6", "2026-02-19T10:00:00Z", 1000, 500, 5000, 0, 0) + "\n"
+	if err := os.WriteFile(transcript, []byte(main), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workflow subagents land under subagents/workflows/wf_*/, not directly in subagents/.
+	flatDir := filepath.Join(dir, "abc123", "subagents")
+	wfDir := filepath.Join(flatDir, "workflows", "wf_abc")
+	if err := os.MkdirAll(wfDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	flat := makeRecord("req_flat", "claude-haiku-4-5-20251001", "2026-02-19T10:01:00Z", 500, 200, 1000, 0, 0) + "\n"
+	if err := os.WriteFile(filepath.Join(flatDir, "agent-a1.jsonl"), []byte(flat), 0644); err != nil {
+		t.Fatal(err)
+	}
+	wf := makeRecord("req_wf", "claude-opus-4-6", "2026-02-19T10:02:00Z", 2000, 800, 3000, 0, 0) + "\n"
+	if err := os.WriteFile(filepath.Join(wfDir, "agent-a2.jsonl"), []byte(wf), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Non-.jsonl sidecar must be ignored.
+	if err := os.WriteFile(filepath.Join(wfDir, "agent-a2.meta.json"), []byte(`{"agentType":"workflow-subagent"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	deduped, err := parseSession(transcript)
+	if err != nil {
+		t.Fatalf("parseSession: %v", err)
+	}
+	if len(deduped) != 3 {
+		t.Errorf("got %d records, want 3 (main + flat + nested workflow agent)", len(deduped))
+	}
+}
+
 func TestParseSession_MissingSubagentDir(t *testing.T) {
 	dir := t.TempDir()
 	transcript := filepath.Join(dir, "session.jsonl")

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -78,23 +79,23 @@ func parseSession(transcriptPath string) (map[string]*dedupRecord, error) {
 	base := strings.TrimSuffix(transcriptPath, ".jsonl")
 	subagentDir := filepath.Join(base, "subagents")
 
-	entries, err := os.ReadDir(subagentDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return deduped, nil
+	// Recurse: legacy subagents sit directly in subagents/, workflow agents nest
+	// under subagents/workflows/wf_*/agent-*.jsonl.
+	_ = filepath.WalkDir(subagentDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if path != subagentDir || !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "goccc: warning: subagent %s: %v\n", filepath.Base(path), err)
+			}
+			return nil
 		}
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
+		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
 		}
-		path := filepath.Join(subagentDir, entry.Name())
 		if _, _, err := parseFile(path, time.Time{}, false, "", deduped, nil); err != nil {
-			fmt.Fprintf(os.Stderr, "goccc: warning: subagent %s: %v\n", entry.Name(), err)
+			fmt.Fprintf(os.Stderr, "goccc: warning: subagent %s: %v\n", filepath.Base(path), err)
 		}
-	}
+		return nil
+	})
 
 	return deduped, nil
 }
