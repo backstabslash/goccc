@@ -14,6 +14,17 @@ var (
 	costThresholdYellow = 25.0
 )
 
+// sortAndTrim sorts s in place by less (which should express the desired
+// ordering, e.g. higher-cost-first) and returns at most topN elements.
+// A topN of 0 (or negative) keeps all of them.
+func sortAndTrim[T any](s []T, less func(a, b T) bool, topN int) []T {
+	sort.Slice(s, func(i, j int) bool { return less(s[i], s[j]) })
+	if topN > 0 && len(s) > topN {
+		return s[:topN]
+	}
+	return s
+}
+
 func fmtCount(n int) string {
 	s := fmt.Sprintf("%d", n)
 	if len(s) <= 3 {
@@ -229,13 +240,12 @@ func buildJSONDaily(data *ParseResult) []jsonDailyRow {
 			daily = append(daily, jsonDailyRow{Date: date, jsonPeriodRow: periodRow(model, b)})
 		}
 	}
-	sort.Slice(daily, func(i, j int) bool {
-		if daily[i].Date != daily[j].Date {
-			return daily[i].Date > daily[j].Date
+	return sortAndTrim(daily, func(a, b jsonDailyRow) bool {
+		if a.Date != b.Date {
+			return a.Date > b.Date
 		}
-		return daily[i].Cost > daily[j].Cost
-	})
-	return daily
+		return a.Cost > b.Cost
+	}, 0)
 }
 
 func buildJSONMonthly(data *ParseResult) []jsonMonthlyRow {
@@ -246,13 +256,12 @@ func buildJSONMonthly(data *ParseResult) []jsonMonthlyRow {
 			monthly = append(monthly, jsonMonthlyRow{Month: month, jsonPeriodRow: periodRow(model, b)})
 		}
 	}
-	sort.Slice(monthly, func(i, j int) bool {
-		if monthly[i].Month != monthly[j].Month {
-			return monthly[i].Month > monthly[j].Month
+	return sortAndTrim(monthly, func(a, b jsonMonthlyRow) bool {
+		if a.Month != b.Month {
+			return a.Month > b.Month
 		}
-		return monthly[i].Cost > monthly[j].Cost
-	})
-	return monthly
+		return a.Cost > b.Cost
+	}, 0)
 }
 
 func buildJSONProjects(data *ParseResult) []jsonProjectRow {
@@ -262,8 +271,7 @@ func buildJSONProjects(data *ParseResult) []jsonProjectRow {
 			projects = append(projects, jsonProjectRow{Project: displayProject(slug, data.ProjectPaths), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
 		}
 	}
-	sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
-	return projects
+	return sortAndTrim(projects, func(a, b jsonProjectRow) bool { return a.Cost > b.Cost }, 0)
 }
 
 func buildJSONBranches(data *ParseResult) []jsonBranchRow {
@@ -278,8 +286,7 @@ func buildJSONBranches(data *ParseResult) []jsonBranchRow {
 			}
 		}
 	}
-	sort.Slice(branches, func(i, j int) bool { return branches[i].Cost > branches[j].Cost })
-	return branches
+	return sortAndTrim(branches, func(a, b jsonBranchRow) bool { return a.Cost > b.Cost }, 0)
 }
 
 func printJSON(data *ParseResult, opts OutputOptions) {
@@ -294,7 +301,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 			CacheWrite1h: b.CacheWrite1h, Requests: b.Requests, Cost: b.Cost,
 		})
 	}
-	sort.Slice(models, func(i, j int) bool { return models[i].Cost > models[j].Cost })
+	models = sortAndTrim(models, func(a, b jsonModelRow) bool { return a.Cost > b.Cost }, 0)
 
 	out := struct {
 		Summary  interface{} `json:"summary"`
@@ -369,8 +376,7 @@ func sortedByCost(models map[string]*Bucket) []modelEntry {
 	for name, b := range models {
 		entries = append(entries, modelEntry{name, b})
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].bucket.Cost > entries[j].bucket.Cost })
-	return entries
+	return sortAndTrim(entries, func(a, b modelEntry) bool { return a.bucket.Cost > b.bucket.Cost }, 0)
 }
 
 func printSummary(data *ParseResult, opts OutputOptions) {
@@ -459,10 +465,7 @@ func printPeriodBreakdown(title, colLabel string, source map[string]map[string]*
 	for k := range source {
 		keys = append(keys, k)
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
-	if topN > 0 && len(keys) > topN {
-		keys = keys[:topN]
-	}
+	keys = sortAndTrim(keys, func(a, b string) bool { return a > b }, topN)
 
 	for _, key := range keys {
 		var cost float64
@@ -570,10 +573,7 @@ func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 		}
 		projects = append(projects, projTotal{slug, t})
 	}
-	sort.Slice(projects, func(i, j int) bool { return projects[i].total > projects[j].total })
-	if opts.TopN > 0 && len(projects) > opts.TopN {
-		projects = projects[:opts.TopN]
-	}
+	projects = sortAndTrim(projects, func(a, b projTotal) bool { return a.total > b.total }, opts.TopN)
 
 	for _, proj := range projects {
 		name := displayProject(proj.slug, data.ProjectPaths)
@@ -601,10 +601,7 @@ func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
 			}
 			branchList = append(branchList, branchTotal{br, bt})
 		}
-		sort.Slice(branchList, func(i, j int) bool { return branchList[i].total > branchList[j].total })
-		if opts.TopN > 0 && len(branchList) > opts.TopN {
-			branchList = branchList[:opts.TopN]
-		}
+		branchList = sortAndTrim(branchList, func(a, b branchTotal) bool { return a.total > b.total }, opts.TopN)
 
 		for _, br := range branchList {
 			printBreakdownGroup(br.branch, branchMap[br.branch], br.total, 30, 25)
@@ -704,10 +701,7 @@ func printAgentBreakdown(data *ToolResult, topN int) {
 	for name, count := range data.AgentCounts {
 		agents = append(agents, agentEntry{name, count, data.AgentTotalTime[name], len(data.AgentProjects[name])})
 	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].count > agents[j].count })
-	if topN > 0 && len(agents) > topN {
-		agents = agents[:topN]
-	}
+	agents = sortAndTrim(agents, func(a, b agentEntry) bool { return a.count > b.count }, topN)
 
 	for _, a := range agents {
 		avgStr := "-"
@@ -752,10 +746,7 @@ func printSkillBreakdown(data *ToolResult, topN int) {
 	for name, count := range data.SkillCounts {
 		skills = append(skills, toolEntry{name: name, count: count, projs: len(data.SkillProjects[name])})
 	}
-	sort.Slice(skills, func(i, j int) bool { return skills[i].count > skills[j].count })
-	if topN > 0 && len(skills) > topN {
-		skills = skills[:topN]
-	}
+	skills = sortAndTrim(skills, func(a, b toolEntry) bool { return a.count > b.count }, topN)
 
 	for _, s := range skills {
 		names := wrapName(s.name, 44)
@@ -800,10 +791,7 @@ func printToolUsage(data *ToolResult, topN int) {
 	for name, count := range data.ToolCounts {
 		tools = append(tools, toolEntry{name, count, data.ToolErrors[name], len(data.ToolProjects[name])})
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].count > tools[j].count })
-	if topN > 0 && len(tools) > topN {
-		tools = tools[:topN]
-	}
+	tools = sortAndTrim(tools, func(a, b toolEntry) bool { return a.count > b.count }, topN)
 
 	for _, t := range tools {
 		errStr := "-"
@@ -852,19 +840,13 @@ func printToolsJSON(data *ToolResult, topN int) {
 		}
 		tools = append(tools, jsonToolRow{name, count, errs, rate, len(data.ToolProjects[name])})
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Invocations > tools[j].Invocations })
-	if topN > 0 && len(tools) > topN {
-		tools = tools[:topN]
-	}
+	tools = sortAndTrim(tools, func(a, b jsonToolRow) bool { return a.Invocations > b.Invocations }, topN)
 
 	var skills []jsonSkillRow
 	for name, count := range data.SkillCounts {
 		skills = append(skills, jsonSkillRow{name, count, len(data.SkillProjects[name])})
 	}
-	sort.Slice(skills, func(i, j int) bool { return skills[i].Invocations > skills[j].Invocations })
-	if topN > 0 && len(skills) > topN {
-		skills = skills[:topN]
-	}
+	skills = sortAndTrim(skills, func(a, b jsonSkillRow) bool { return a.Invocations > b.Invocations }, topN)
 
 	var agents []jsonAgentRow
 	for name, count := range data.AgentCounts {
@@ -875,10 +857,7 @@ func printToolsJSON(data *ToolResult, topN int) {
 		}
 		agents = append(agents, jsonAgentRow{name, count, avgMs, totalMs, len(data.AgentProjects[name])})
 	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].Invocations > agents[j].Invocations })
-	if topN > 0 && len(agents) > topN {
-		agents = agents[:topN]
-	}
+	agents = sortAndTrim(agents, func(a, b jsonAgentRow) bool { return a.Invocations > b.Invocations }, topN)
 
 	unused := unusedSkills(data)
 
