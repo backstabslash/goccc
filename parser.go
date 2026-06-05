@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,11 +58,26 @@ type dedupRecord struct {
 	Timestamp time.Time
 }
 
+func hasJSONType(line []byte, typ string) bool {
+	return bytes.Contains(line, []byte(`"type":"`+typ+`"`)) ||
+		bytes.Contains(line, []byte(`"type": "`+typ+`"`))
+}
+
 func fastSuffix(speed string) string {
 	if speed == "fast" {
 		return ":fast"
 	}
 	return ""
+}
+
+// localMidnightCutoff returns the local-midnight start of the days-long window
+// (inclusive of today), and whether a cutoff applies at all.
+func localMidnightCutoff(days int) (cutoff time.Time, hasCutoff bool) {
+	if days <= 0 {
+		return time.Time{}, false
+	}
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1)), true
 }
 
 func captureCwd(paths map[string]string, slug, cwd string) {
@@ -107,7 +121,7 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 			continue
 		}
 
-		if !bytes.Contains(line, []byte(`"type":"assistant"`)) && !bytes.Contains(line, []byte(`"type": "assistant"`)) {
+		if !hasJSONType(line, "assistant") {
 			continue
 		}
 
@@ -162,70 +176,18 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 	return rawCount, parseErrs, nil
 }
 
-type logWalker struct {
-	projectsDir  string
-	matchedSlug  string
-	hasCutoff    bool
-	cutoff       time.Time
-	deduped      map[string]*dedupRecord
-	projectPaths map[string]string
-	totalFiles   int
-	parseErrors  int
-}
-
-func (w *logWalker) walk(path string, d fs.DirEntry, err error) error {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-		return nil
+func newParseResult() *ParseResult {
+	return &ParseResult{
+		ModelUsage:   make(map[string]*Bucket),
+		DailyUsage:   make(map[string]map[string]*Bucket),
+		ProjectUsage: make(map[string]map[string]*Bucket),
+		BranchUsage:  make(map[string]map[string]map[string]*Bucket),
+		ProjectPaths: make(map[string]string),
 	}
-
-	if d.IsDir() {
-		if path == w.projectsDir {
-			return nil
-		}
-		if w.matchedSlug != "" {
-			rel, _ := filepath.Rel(w.projectsDir, path)
-			slug := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-			if slug != w.matchedSlug {
-				return fs.SkipDir
-			}
-		}
-		return nil
-	}
-
-	if !strings.HasSuffix(path, ".jsonl") {
-		return nil
-	}
-
-	if w.hasCutoff {
-		if info, err := d.Info(); err == nil && info.ModTime().Before(w.cutoff) {
-			return nil
-		}
-	}
-
-	rel, err := filepath.Rel(w.projectsDir, path)
-	if err != nil {
-		return nil
-	}
-	parts := strings.SplitN(rel, string(filepath.Separator), 2)
-	projectSlug := parts[0]
-
-	w.totalFiles++
-	_, pErr, fErr := parseFile(path, w.cutoff, w.hasCutoff, projectSlug, w.deduped, w.projectPaths)
-	if fErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
-		return nil
-	}
-	w.parseErrors += pErr
-	return nil
 }
 
 func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, error) {
-	var cutoff time.Time
-	if days > 0 {
-		now := time.Now()
-		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
-	}
+	cutoff, hasCutoff := localMidnightCutoff(days)
 
 	projectsDir := filepath.Join(baseDir, "projects")
 	if info, err := os.Stat(projectsDir); err != nil || !info.IsDir() {
@@ -234,40 +196,39 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 
 	matchedSlug := resolveProjectSlug(projectsDir, projectFilter)
 	if projectFilter != "" && matchedSlug == "" {
-		return &ParseResult{
-			ModelUsage:   make(map[string]*Bucket),
-			DailyUsage:   make(map[string]map[string]*Bucket),
-			ProjectUsage: make(map[string]map[string]*Bucket),
-			BranchUsage:  make(map[string]map[string]map[string]*Bucket),
-			ProjectPaths: make(map[string]string),
-		}, nil
+		return newParseResult(), nil
 	}
 
-	w := &logWalker{
-		projectsDir:  projectsDir,
-		matchedSlug:  matchedSlug,
-		hasCutoff:    days > 0,
-		cutoff:       cutoff,
-		deduped:      make(map[string]*dedupRecord),
-		projectPaths: make(map[string]string),
+	deduped := make(map[string]*dedupRecord)
+	projectPaths := make(map[string]string)
+	var parseErrors int
+
+	w := &dirWalker{
+		projectsDir: projectsDir,
+		matchedSlug: matchedSlug,
+		hasCutoff:   hasCutoff,
+		cutoff:      cutoff,
+		onFile: func(path, projectSlug, _ string) {
+			_, pErr, fErr := parseFile(path, cutoff, hasCutoff, projectSlug, deduped, projectPaths)
+			if fErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
+				return
+			}
+			parseErrors += pErr
+		},
 	}
 
 	if err := filepath.WalkDir(projectsDir, w.walk); err != nil {
 		return nil, err
 	}
 
-	result := &ParseResult{
-		ModelUsage:   make(map[string]*Bucket),
-		DailyUsage:   make(map[string]map[string]*Bucket),
-		ProjectUsage: make(map[string]map[string]*Bucket),
-		BranchUsage:  make(map[string]map[string]map[string]*Bucket),
-		ProjectPaths: w.projectPaths,
-		TotalFiles:   w.totalFiles,
-		TotalRecords: len(w.deduped),
-		ParseErrors:  w.parseErrors,
-	}
+	result := newParseResult()
+	result.ProjectPaths = projectPaths
+	result.TotalFiles = w.totalFiles
+	result.TotalRecords = len(deduped)
+	result.ParseErrors = parseErrors
 
-	for _, r := range w.deduped {
+	for _, r := range deduped {
 		cr := calcCostResult(r.Model, r.Usage)
 		cache5m, cache1h := r.Usage.CacheWriteTokens()
 

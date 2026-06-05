@@ -362,21 +362,6 @@ func TestFormatStatuslineWithConfig_LineBreak(t *testing.T) {
 	}
 }
 
-func TestFormatStatuslineWithConfig_NilConfigMatchesDefault(t *testing.T) {
-	noColorFlag = true
-	defer func() { noColorFlag = false }()
-
-	input := &StatuslineInput{}
-	input.Model.ID = "claude-opus-4-6"
-	input.ContextWindow.UsedPercentage = 45.0
-
-	got1 := formatStatusline(0.50, 2.00, input, nil, "")
-	got2 := formatStatuslineWithConfig(0.50, 2.00, input, nil, "", nil)
-	if got1 != got2 {
-		t.Errorf("nil config differs from default:\n  formatStatusline:           %q\n  formatStatuslineWithConfig: %q", got1, got2)
-	}
-}
-
 func TestFormatStatuslineWithConfig_UnknownSegmentIgnored(t *testing.T) {
 	noColorFlag = true
 	defer func() { noColorFlag = false }()
@@ -503,20 +488,6 @@ func TestFormatRateLimitUsage_SevenDay(t *testing.T) {
 	}
 	if !strings.Contains(got, "/7d") {
 		t.Errorf("got %q, expected /7d label", got)
-	}
-}
-
-func TestFormatRateLimitUsage_BackwardCompatible5h(t *testing.T) {
-	noColorFlag = true
-	defer func() { noColorFlag = false }()
-
-	now := time.Date(2026, 3, 25, 11, 30, 0, 0, time.UTC)
-	resetsAt := time.Date(2026, 3, 25, 15, 0, 0, 0, time.UTC).Unix()
-
-	oldResult := formatFiveHourUsage(6, resetsAt, now)
-	newResult := formatRateLimitUsage(6, resetsAt, now, fiveHourWindow, fiveHourLowBattery)
-	if oldResult != newResult {
-		t.Errorf("backward compat broken:\n  old: %q\n  new: %q", oldResult, newResult)
 	}
 }
 

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -284,5 +288,127 @@ func TestAggregateMonthlyTokens(t *testing.T) {
 	}
 	if b.CacheWrite1h != 45 {
 		t.Errorf("CacheWrite1h = %d, want 45", b.CacheWrite1h)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	fn()
+	_ = w.Close()
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	return buf.String()
+}
+
+func fixtureData(t *testing.T) *ParseResult {
+	t.Helper()
+	data, err := parseLogs("testdata", 0, "")
+	if err != nil {
+		t.Fatalf("parseLogs: %v", err)
+	}
+	return data
+}
+
+func assertContainsAll(t *testing.T, got string, want ...string) {
+	t.Helper()
+	for _, w := range want {
+		if !strings.Contains(got, w) {
+			t.Errorf("output missing %q\n--- output ---\n%s", w, got)
+		}
+	}
+}
+
+func TestPrintDailyBreakdown(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	data := fixtureData(t)
+	out := captureStdout(t, func() { printDailyBreakdown(data, OutputOptions{ShowDaily: true}) })
+
+	assertContainsAll(t, out, "DAILY BREAKDOWN", "Date", "2026-02-18", "2026-02-19", "Opus 4.6", "Haiku 4.5")
+	// Two days, each ending in a subtotal row (blank label + cost).
+	if n := strings.Count(out, "$"); n < 2 {
+		t.Errorf("expected cost figures in daily breakdown, got %d $ signs", n)
+	}
+}
+
+func TestPrintMonthlyBreakdown(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	data := fixtureData(t)
+	out := captureStdout(t, func() { printMonthlyBreakdown(data, OutputOptions{ShowMonthly: true}) })
+
+	assertContainsAll(t, out, "MONTHLY BREAKDOWN", "Month", "2026-02", "Opus 4.6", "Haiku 4.5")
+}
+
+func TestPrintProjectBreakdown(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	data := fixtureData(t)
+	name := displayProject("C--Users-alice-git-webapp", data.ProjectPaths)
+	out := captureStdout(t, func() { printProjectBreakdown(data, OutputOptions{ShowProjects: true}) })
+
+	assertContainsAll(t, out, "PROJECT BREAKDOWN", "Project", name, "Opus 4.6", "Haiku 4.5", "SUBTOTAL")
+}
+
+func TestPrintBranchBreakdown(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	data := fixtureData(t)
+	out := captureStdout(t, func() { printBranchBreakdown(data, OutputOptions{ShowBranches: true}) })
+
+	assertContainsAll(t, out, "BRANCH BREAKDOWN", "Branch", "main", "Opus 4.6", "Haiku 4.5", "SUBTOTAL")
+}
+
+func TestPrintDailyBreakdown_TopN(t *testing.T) {
+	noColorFlag = true
+	defer func() { noColorFlag = false }()
+
+	data := fixtureData(t)
+	out := captureStdout(t, func() { printDailyBreakdown(data, OutputOptions{ShowDaily: true, TopN: 1}) })
+
+	// TopN=1 keeps only the most recent day.
+	if strings.Contains(out, "2026-02-18") {
+		t.Errorf("TopN=1 should drop the older day\n%s", out)
+	}
+	assertContainsAll(t, out, "2026-02-19")
+}
+
+func TestBuildJSONDaily(t *testing.T) {
+	data := fixtureData(t)
+	rows := buildJSONDaily(data)
+	if len(rows) == 0 {
+		t.Fatal("expected daily rows")
+	}
+	// Sorted by date descending, then cost descending.
+	for i := 1; i < len(rows); i++ {
+		if rows[i-1].Date < rows[i].Date {
+			t.Errorf("rows not date-descending at %d: %s < %s", i, rows[i-1].Date, rows[i].Date)
+		}
+	}
+}
+
+func TestBuildJSONMonthly(t *testing.T) {
+	data := fixtureData(t)
+	rows := buildJSONMonthly(data)
+	if len(rows) == 0 {
+		t.Fatal("expected monthly rows")
+	}
+	for _, r := range rows {
+		if r.Month != "2026-02" {
+			t.Errorf("unexpected month %q", r.Month)
+		}
 	}
 }
