@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +61,22 @@ type toolCollector struct {
 	agentUseTS     map[string]time.Time // tool_use_id → timestamp (Agent calls)
 	agentUseType   map[string]string    // tool_use_id → agent type
 	agentTotalTime map[string]time.Duration
+}
+
+func newToolResult() *ToolResult {
+	return &ToolResult{
+		ToolCounts:     make(map[string]int),
+		ToolErrors:     make(map[string]int),
+		SkillCounts:    make(map[string]int),
+		AgentCounts:    make(map[string]int),
+		AgentTotalTime: make(map[string]time.Duration),
+		ToolProjects:   make(map[string]map[string]bool),
+		SkillProjects:  make(map[string]map[string]bool),
+		AgentProjects:  make(map[string]map[string]bool),
+		ToolSessions:   make(map[string]bool),
+		AgentSessions:  make(map[string]bool),
+		SkillSessions:  make(map[string]bool),
+	}
 }
 
 func newToolCollector() *toolCollector {
@@ -127,7 +142,10 @@ func parseSkillListing(content string) []string {
 		}
 		line = strings.TrimPrefix(line, "- ")
 		if idx := strings.Index(line, ": "); idx > 0 {
-			skills = append(skills, line[:idx])
+			line = line[:idx]
+		}
+		if line = strings.TrimSpace(line); line != "" {
+			skills = append(skills, line)
 		}
 	}
 	return skills
@@ -244,16 +262,12 @@ func (col *toolCollector) processSkillListing(rec *toolRecord) {
 }
 
 func isToolLine(line []byte) bool {
-	isAssistant := bytes.Contains(line, []byte(`"type":"assistant"`)) || bytes.Contains(line, []byte(`"type": "assistant"`))
-	if isAssistant {
+	switch {
+	case hasJSONType(line, "assistant"):
 		return bytes.Contains(line, []byte(`"tool_use"`))
-	}
-	isUser := bytes.Contains(line, []byte(`"type":"user"`)) || bytes.Contains(line, []byte(`"type": "user"`))
-	if isUser {
+	case hasJSONType(line, "user"):
 		return bytes.Contains(line, []byte(`"tool_result"`))
-	}
-	isAttachment := bytes.Contains(line, []byte(`"type":"attachment"`)) || bytes.Contains(line, []byte(`"type": "attachment"`))
-	if isAttachment {
+	case hasJSONType(line, "attachment"):
 		return bytes.Contains(line, []byte(`"skill_listing"`))
 	}
 	return false
@@ -321,75 +335,8 @@ func parseToolFile(path string, cutoff time.Time, hasCutoff bool, projectSlug, s
 	return parseErrs, nil
 }
 
-type toolWalker struct {
-	projectsDir string
-	matchedSlug string
-	hasCutoff   bool
-	cutoff      time.Time
-	col         *toolCollector
-	totalFiles  int
-	parseErrors int
-}
-
-func (w *toolWalker) walk(path string, d fs.DirEntry, err error) error {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-		return nil
-	}
-
-	if d.IsDir() {
-		if path == w.projectsDir {
-			return nil
-		}
-		if w.matchedSlug != "" {
-			rel, _ := filepath.Rel(w.projectsDir, path)
-			slug := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-			if slug != w.matchedSlug {
-				return fs.SkipDir
-			}
-		}
-		return nil
-	}
-
-	if !strings.HasSuffix(path, ".jsonl") {
-		return nil
-	}
-
-	if w.hasCutoff {
-		if info, err := d.Info(); err == nil && info.ModTime().Before(w.cutoff) {
-			return nil
-		}
-	}
-
-	rel, err := filepath.Rel(w.projectsDir, path)
-	if err != nil {
-		return nil
-	}
-	parts := strings.SplitN(rel, string(filepath.Separator), 2)
-	projectSlug := parts[0]
-
-	sessionID := ""
-	if len(parts) > 1 {
-		sessionParts := strings.SplitN(parts[1], string(filepath.Separator), 2)
-		sessionID = strings.TrimSuffix(sessionParts[0], ".jsonl")
-	}
-
-	w.totalFiles++
-	pErr, fErr := parseToolFile(path, w.cutoff, w.hasCutoff, projectSlug, sessionID, w.col)
-	if fErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
-		return nil
-	}
-	w.parseErrors += pErr
-	return nil
-}
-
 func parseTools(baseDir string, days int, projectFilter string) (*ToolResult, error) {
-	var cutoff time.Time
-	if days > 0 {
-		now := time.Now()
-		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
-	}
+	cutoff, hasCutoff := localMidnightCutoff(days)
 
 	projectsDir := filepath.Join(baseDir, "projects")
 	if info, err := os.Stat(projectsDir); err != nil || !info.IsDir() {
@@ -398,28 +345,20 @@ func parseTools(baseDir string, days int, projectFilter string) (*ToolResult, er
 
 	matchedSlug := resolveProjectSlug(projectsDir, projectFilter)
 	if projectFilter != "" && matchedSlug == "" {
-		return &ToolResult{
-			ToolCounts:     make(map[string]int),
-			ToolErrors:     make(map[string]int),
-			SkillCounts:    make(map[string]int),
-			AgentCounts:    make(map[string]int),
-			AgentTotalTime: make(map[string]time.Duration),
-			ToolProjects:   make(map[string]map[string]bool),
-			SkillProjects:  make(map[string]map[string]bool),
-			AgentProjects:  make(map[string]map[string]bool),
-			ToolSessions:   make(map[string]bool),
-			AgentSessions:  make(map[string]bool),
-			SkillSessions:  make(map[string]bool),
-		}, nil
+		return newToolResult(), nil
 	}
 
 	col := newToolCollector()
-	w := &toolWalker{
+	w := &dirWalker{
 		projectsDir: projectsDir,
 		matchedSlug: matchedSlug,
-		hasCutoff:   days > 0,
+		hasCutoff:   hasCutoff,
 		cutoff:      cutoff,
-		col:         col,
+		onFile: func(path, projectSlug, sessionID string) {
+			if _, fErr := parseToolFile(path, cutoff, hasCutoff, projectSlug, sessionID, col); fErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", path, fErr)
+			}
+		},
 	}
 
 	if err := filepath.WalkDir(projectsDir, w.walk); err != nil {

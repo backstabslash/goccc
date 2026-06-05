@@ -370,6 +370,20 @@ func TestParseSkillListing_NamespacedSkills(t *testing.T) {
 	}
 }
 
+func TestParseSkillListing_BareNames(t *testing.T) {
+	content := "- review-diff: Use when reviewing a diff\n- optimize-tests\n- create-prd\n- superpowers:execute-plan\n- mysql:mysql-lint: Analyze MySQL queries"
+	got := parseSkillListing(content)
+	want := []string{"review-diff", "optimize-tests", "create-prd", "superpowers:execute-plan", "mysql:mysql-lint"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d skills, got %d: %v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("skill[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestParseSkillListing_Empty(t *testing.T) {
 	got := parseSkillListing("")
 	if len(got) != 0 {

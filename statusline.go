@@ -56,11 +56,6 @@ type StatuslineInput struct {
 	} `json:"workspace"`
 }
 
-// formatFiveHourUsage is kept for backward compatibility with tests.
-func formatFiveHourUsage(usedPct float64, resetsAt int64, now time.Time) string {
-	return formatRateLimitUsage(usedPct, resetsAt, now, fiveHourWindow, fiveHourLowBattery)
-}
-
 func readStatuslineInput(r io.Reader) (*StatuslineInput, error) {
 	var input StatuslineInput
 	if err := json.NewDecoder(r).Decode(&input); err != nil {
@@ -118,10 +113,6 @@ func sessionBranch(deduped map[string]*dedupRecord) string {
 		}
 	}
 	return branch
-}
-
-func formatStatusline(sCost, tCost float64, input *StatuslineInput, mcpNames []string, branch string) string {
-	return formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, nil)
 }
 
 func formatStatuslineWithConfig(sCost, tCost float64, input *StatuslineInput, mcpNames []string, branch string, cfg *StatuslineConfig) string {

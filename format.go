@@ -14,6 +14,17 @@ var (
 	costThresholdYellow = 25.0
 )
 
+// sortAndTrim sorts s in place by less (which should express the desired
+// ordering, e.g. higher-cost-first) and returns at most topN elements.
+// A topN of 0 (or negative) keeps all of them.
+func sortAndTrim[T any](s []T, less func(a, b T) bool, topN int) []T {
+	sort.Slice(s, func(i, j int) bool { return less(s[i], s[j]) })
+	if topN > 0 && len(s) > topN {
+		return s[:topN]
+	}
+	return s
+}
+
 func fmtCount(n int) string {
 	s := fmt.Sprintf("%d", n)
 	if len(s) <= 3 {
@@ -49,16 +60,21 @@ func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%dms", d.Milliseconds())
 }
 
+func toDisplayCurrency(c float64) float64 {
+	if activeCurrency.Rate > 0 {
+		return c * activeCurrency.Rate
+	}
+	return c
+}
+
 func fmtCost(c float64) string {
 	sym := "$"
-	v := c
 	suffix := false
 	if activeCurrency.Rate > 0 {
 		sym = activeCurrency.Symbol
-		v = c * activeCurrency.Rate
 		suffix = activeCurrency.Suffix
 	}
-	num := fmt.Sprintf("%.2f", v)
+	num := fmt.Sprintf("%.2f", toDisplayCurrency(c))
 	if suffix {
 		return num + " " + sym
 	}
@@ -66,10 +82,7 @@ func fmtCost(c float64) string {
 }
 
 func colorize(s string, cost float64) string {
-	c := cost
-	if activeCurrency.Rate > 0 {
-		c = cost * activeCurrency.Rate
-	}
+	c := toDisplayCurrency(cost)
 	switch {
 	case c >= costThresholdRed:
 		return redString(s)
@@ -175,8 +188,10 @@ type jsonModelRow struct {
 	Cost         float64 `json:"cost"`
 }
 
-type jsonDailyRow struct {
-	Date         string  `json:"date"`
+// jsonPeriodRow holds the columns shared by the daily and monthly JSON rows.
+// Each variant embeds it after its own period key, so marshaling keeps the
+// original field order (period first, then these).
+type jsonPeriodRow struct {
 	Model        string  `json:"model"`
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
@@ -186,15 +201,22 @@ type jsonDailyRow struct {
 	Cost         float64 `json:"cost"`
 }
 
+func periodRow(model string, b *Bucket) jsonPeriodRow {
+	return jsonPeriodRow{
+		Model: shortModel(model), InputTokens: b.InputTokens, OutputTokens: b.OutputTokens,
+		CacheRead: b.CacheRead, CacheWrite: b.TotalCacheWrite(),
+		Requests: b.Requests, Cost: b.Cost,
+	}
+}
+
+type jsonDailyRow struct {
+	Date string `json:"date"`
+	jsonPeriodRow
+}
+
 type jsonMonthlyRow struct {
-	Month        string  `json:"month"`
-	Model        string  `json:"model"`
-	InputTokens  int     `json:"input_tokens"`
-	OutputTokens int     `json:"output_tokens"`
-	CacheRead    int     `json:"cache_read_tokens"`
-	CacheWrite   int     `json:"cache_write_tokens"`
-	Requests     int     `json:"requests"`
-	Cost         float64 `json:"cost"`
+	Month string `json:"month"`
+	jsonPeriodRow
 }
 
 type jsonProjectRow struct {
@@ -215,21 +237,15 @@ func buildJSONDaily(data *ParseResult) []jsonDailyRow {
 	var daily []jsonDailyRow
 	for date, dayModels := range data.DailyUsage {
 		for model, b := range dayModels {
-			daily = append(daily, jsonDailyRow{
-				Date: date, Model: shortModel(model),
-				InputTokens: b.InputTokens, OutputTokens: b.OutputTokens,
-				CacheRead: b.CacheRead, CacheWrite: b.TotalCacheWrite(),
-				Requests: b.Requests, Cost: b.Cost,
-			})
+			daily = append(daily, jsonDailyRow{Date: date, jsonPeriodRow: periodRow(model, b)})
 		}
 	}
-	sort.Slice(daily, func(i, j int) bool {
-		if daily[i].Date != daily[j].Date {
-			return daily[i].Date > daily[j].Date
+	return sortAndTrim(daily, func(a, b jsonDailyRow) bool {
+		if a.Date != b.Date {
+			return a.Date > b.Date
 		}
-		return daily[i].Cost > daily[j].Cost
-	})
-	return daily
+		return a.Cost > b.Cost
+	}, 0)
 }
 
 func buildJSONMonthly(data *ParseResult) []jsonMonthlyRow {
@@ -237,21 +253,15 @@ func buildJSONMonthly(data *ParseResult) []jsonMonthlyRow {
 	var monthly []jsonMonthlyRow
 	for month, monthModels := range monthlyData {
 		for model, b := range monthModels {
-			monthly = append(monthly, jsonMonthlyRow{
-				Month: month, Model: shortModel(model),
-				InputTokens: b.InputTokens, OutputTokens: b.OutputTokens,
-				CacheRead: b.CacheRead, CacheWrite: b.TotalCacheWrite(),
-				Requests: b.Requests, Cost: b.Cost,
-			})
+			monthly = append(monthly, jsonMonthlyRow{Month: month, jsonPeriodRow: periodRow(model, b)})
 		}
 	}
-	sort.Slice(monthly, func(i, j int) bool {
-		if monthly[i].Month != monthly[j].Month {
-			return monthly[i].Month > monthly[j].Month
+	return sortAndTrim(monthly, func(a, b jsonMonthlyRow) bool {
+		if a.Month != b.Month {
+			return a.Month > b.Month
 		}
-		return monthly[i].Cost > monthly[j].Cost
-	})
-	return monthly
+		return a.Cost > b.Cost
+	}, 0)
 }
 
 func buildJSONProjects(data *ParseResult) []jsonProjectRow {
@@ -261,8 +271,7 @@ func buildJSONProjects(data *ParseResult) []jsonProjectRow {
 			projects = append(projects, jsonProjectRow{Project: displayProject(slug, data.ProjectPaths), Model: shortModel(model), Requests: b.Requests, Cost: b.Cost})
 		}
 	}
-	sort.Slice(projects, func(i, j int) bool { return projects[i].Cost > projects[j].Cost })
-	return projects
+	return sortAndTrim(projects, func(a, b jsonProjectRow) bool { return a.Cost > b.Cost }, 0)
 }
 
 func buildJSONBranches(data *ParseResult) []jsonBranchRow {
@@ -277,8 +286,7 @@ func buildJSONBranches(data *ParseResult) []jsonBranchRow {
 			}
 		}
 	}
-	sort.Slice(branches, func(i, j int) bool { return branches[i].Cost > branches[j].Cost })
-	return branches
+	return sortAndTrim(branches, func(a, b jsonBranchRow) bool { return a.Cost > b.Cost }, 0)
 }
 
 func printJSON(data *ParseResult, opts OutputOptions) {
@@ -293,7 +301,7 @@ func printJSON(data *ParseResult, opts OutputOptions) {
 			CacheWrite1h: b.CacheWrite1h, Requests: b.Requests, Cost: b.Cost,
 		})
 	}
-	sort.Slice(models, func(i, j int) bool { return models[i].Cost > models[j].Cost })
+	models = sortAndTrim(models, func(a, b jsonModelRow) bool { return a.Cost > b.Cost }, 0)
 
 	out := struct {
 		Summary  interface{} `json:"summary"`
@@ -357,6 +365,20 @@ type modelEntry struct {
 	bucket *Bucket
 }
 
+func printSectionHeader(title string) {
+	bold.Println(strings.Repeat("─", 80))
+	bold.Println("  " + title)
+	bold.Println(strings.Repeat("─", 80))
+}
+
+func sortedByCost(models map[string]*Bucket) []modelEntry {
+	entries := make([]modelEntry, 0, len(models))
+	for name, b := range models {
+		entries = append(entries, modelEntry{name, b})
+	}
+	return sortAndTrim(entries, func(a, b modelEntry) bool { return a.bucket.Cost > b.bucket.Cost }, 0)
+}
+
 func printSummary(data *ParseResult, opts OutputOptions) {
 	fmt.Println()
 	bold.Println(strings.Repeat("═", 80))
@@ -384,20 +406,14 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	fmt.Println()
 
 	// Model breakdown
-	bold.Println(strings.Repeat("─", 80))
-	bold.Println("  MODEL BREAKDOWN")
-	bold.Println(strings.Repeat("─", 80))
+	printSectionHeader("MODEL BREAKDOWN")
 	fmt.Printf("  %-16s %9s %9s %9s %9s %7s %10s\n",
 		"Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
 
 	totals := data.Totals()
 
-	var models []modelEntry
-	for name, b := range data.ModelUsage {
-		models = append(models, modelEntry{name, b})
-	}
-	sort.Slice(models, func(i, j int) bool { return models[i].bucket.Cost > models[j].bucket.Cost })
+	models := sortedByCost(data.ModelUsage)
 
 	for _, m := range models {
 		b := m.bucket
@@ -436,55 +452,53 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 	}
 }
 
-func printDailyBreakdown(data *ParseResult, opts OutputOptions) {
-
-	bold.Println(strings.Repeat("─", 80))
-	bold.Println("  DAILY BREAKDOWN")
-	bold.Println(strings.Repeat("─", 80))
+// printPeriodBreakdown renders a date-bucketed table (daily or monthly). Keys
+// are sorted descending; each key's models sort by cost, the first row carries
+// the period label, and a trailing subtotal row closes the group.
+func printPeriodBreakdown(title, colLabel string, source map[string]map[string]*Bucket, topN int) {
+	printSectionHeader(title)
 	fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6s %8s\n",
-		"Date", "Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
+		colLabel, "Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
 
-	var dates []string
-	for d := range data.DailyUsage {
-		dates = append(dates, d)
+	var keys []string
+	for k := range source {
+		keys = append(keys, k)
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
-	if opts.TopN > 0 && len(dates) > opts.TopN {
-		dates = dates[:opts.TopN]
-	}
+	keys = sortAndTrim(keys, func(a, b string) bool { return a > b }, topN)
 
-	for _, date := range dates {
-		dayModels := data.DailyUsage[date]
-		var dayCost float64
-		var dayReqs int
+	for _, key := range keys {
+		var cost float64
+		var reqs int
 
-		var sorted []modelEntry
-		for name, b := range dayModels {
-			sorted = append(sorted, modelEntry{name, b})
-			dayCost += b.Cost
-			dayReqs += b.Requests
+		sorted := sortedByCost(source[key])
+		for _, m := range sorted {
+			cost += m.bucket.Cost
+			reqs += m.bucket.Requests
 		}
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
 
 		first := true
 		for _, m := range sorted {
 			b := m.bucket
-			d := ""
+			label := ""
 			if first {
-				d = date
+				label = key
 			}
 			fmt.Printf("  %-12s %s %7s %7s %8s %8s %6d %s\n",
-				d, cyan.Sprintf("%-11s", shortModel(m.name)),
+				label, cyan.Sprintf("%-11s", shortModel(m.name)),
 				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
 				fmtTokens(b.CacheRead), fmtTokens(b.TotalCacheWrite()),
 				b.Requests, colorCost(b.Cost, 8))
 			first = false
 		}
 		fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6d %s\n",
-			"", "", "", "", "", "", dayReqs, colorCost(dayCost, 8))
+			"", "", "", "", "", "", reqs, colorCost(cost, 8))
 		fmt.Println()
 	}
+}
+
+func printDailyBreakdown(data *ParseResult, opts OutputOptions) {
+	printPeriodBreakdown("DAILY BREAKDOWN", "Date", data.DailyUsage, opts.TopN)
 }
 
 func aggregateMonthly(dailyUsage map[string]map[string]*Bucket) map[string]map[string]*Bucket {
@@ -509,63 +523,40 @@ func aggregateMonthly(dailyUsage map[string]map[string]*Bucket) map[string]map[s
 }
 
 func printMonthlyBreakdown(data *ParseResult, opts OutputOptions) {
+	printPeriodBreakdown("MONTHLY BREAKDOWN", "Month", aggregateMonthly(data.DailyUsage), opts.TopN)
+}
 
-	bold.Println(strings.Repeat("─", 80))
-	bold.Println("  MONTHLY BREAKDOWN")
-	bold.Println(strings.Repeat("─", 80))
-	fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6s %8s\n",
-		"Month", "Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
-	fmt.Println("  " + strings.Repeat("─", 75))
+// printBreakdownGroup renders one named group (a project or a branch): its
+// models sorted by cost, the name wrapped across rows at wrapChunk width within
+// a nameWidth column, then a SUBTOTAL row. Shared by project/branch breakdowns.
+func printBreakdownGroup(name string, models map[string]*Bucket, total float64, nameWidth, wrapChunk int) {
+	sorted := sortedByCost(models)
 
-	monthly := aggregateMonthly(data.DailyUsage)
-
-	var months []string
-	for m := range monthly {
-		months = append(months, m)
-	}
-	sort.Sort(sort.Reverse(sort.StringSlice(months)))
-	if opts.TopN > 0 && len(months) > opts.TopN {
-		months = months[:opts.TopN]
-	}
-
-	for _, month := range months {
-		monthModels := monthly[month]
-		var monthCost float64
-		var monthReqs int
-
-		var sorted []modelEntry
-		for name, b := range monthModels {
-			sorted = append(sorted, modelEntry{name, b})
-			monthCost += b.Cost
-			monthReqs += b.Requests
+	names := wrapName(name, wrapChunk)
+	for i, m := range sorted {
+		n := ""
+		if i < len(names) {
+			n = names[i]
 		}
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
-
-		first := true
-		for _, m := range sorted {
-			b := m.bucket
-			label := ""
-			if first {
-				label = month
-			}
-			fmt.Printf("  %-12s %s %7s %7s %8s %8s %6d %s\n",
-				label, cyan.Sprintf("%-11s", shortModel(m.name)),
-				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
-				fmtTokens(b.CacheRead), fmtTokens(b.TotalCacheWrite()),
-				b.Requests, colorCost(b.Cost, 8))
-			first = false
-		}
-		fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6d %s\n",
-			"", "", "", "", "", "", monthReqs, colorCost(monthCost, 8))
-		fmt.Println()
+		b := m.bucket
+		fmt.Printf("  %-*s %s %7d %s\n",
+			nameWidth, n, cyan.Sprintf("%-16s", shortModel(m.name)),
+			b.Requests, colorCost(b.Cost, 10))
 	}
+	for i := len(sorted); i < len(names)-1; i++ {
+		fmt.Printf("  %s\n", names[i])
+	}
+	subtotalName := ""
+	if len(names) > len(sorted) {
+		subtotalName = names[len(names)-1]
+	}
+	fmt.Printf("  %-*s %-16s %7s %s\n",
+		nameWidth, subtotalName, "SUBTOTAL", "", colorCost(total, 10))
+	fmt.Println()
 }
 
 func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
-
-	bold.Println(strings.Repeat("─", 80))
-	bold.Println("  PROJECT BREAKDOWN")
-	bold.Println(strings.Repeat("─", 80))
+	printSectionHeader("PROJECT BREAKDOWN")
 	fmt.Printf("  %-35s %-16s %7s %10s\n",
 		"Project", "Model", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
@@ -582,50 +573,16 @@ func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 		}
 		projects = append(projects, projTotal{slug, t})
 	}
-	sort.Slice(projects, func(i, j int) bool { return projects[i].total > projects[j].total })
-	if opts.TopN > 0 && len(projects) > opts.TopN {
-		projects = projects[:opts.TopN]
-	}
+	projects = sortAndTrim(projects, func(a, b projTotal) bool { return a.total > b.total }, opts.TopN)
 
 	for _, proj := range projects {
-		projModels := data.ProjectUsage[proj.slug]
 		name := displayProject(proj.slug, data.ProjectPaths)
-
-		var sorted []modelEntry
-		for mname, b := range projModels {
-			sorted = append(sorted, modelEntry{mname, b})
-		}
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
-
-		names := wrapName(name, 30)
-		for i, m := range sorted {
-			n := ""
-			if i < len(names) {
-				n = names[i]
-			}
-			b := m.bucket
-			fmt.Printf("  %-35s %s %7d %s\n",
-				n, cyan.Sprintf("%-16s", shortModel(m.name)),
-				b.Requests, colorCost(b.Cost, 10))
-		}
-		for i := len(sorted); i < len(names)-1; i++ {
-			fmt.Printf("  %s\n", names[i])
-		}
-		subtotalName := ""
-		if len(names) > len(sorted) {
-			subtotalName = names[len(names)-1]
-		}
-		fmt.Printf("  %-35s %-16s %7s %s\n",
-			subtotalName, "SUBTOTAL", "", colorCost(proj.total, 10))
-		fmt.Println()
+		printBreakdownGroup(name, data.ProjectUsage[proj.slug], proj.total, 35, 30)
 	}
 }
 
 func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
-
-	bold.Println(strings.Repeat("─", 80))
-	bold.Println("  BRANCH BREAKDOWN")
-	bold.Println(strings.Repeat("─", 80))
+	printSectionHeader("BRANCH BREAKDOWN")
 	fmt.Printf("  %-30s %-16s %7s %10s\n",
 		"Branch", "Model", "Reqs", "Cost")
 	fmt.Println("  " + strings.Repeat("─", 75))
@@ -644,40 +601,10 @@ func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
 			}
 			branchList = append(branchList, branchTotal{br, bt})
 		}
-		sort.Slice(branchList, func(i, j int) bool { return branchList[i].total > branchList[j].total })
-		if opts.TopN > 0 && len(branchList) > opts.TopN {
-			branchList = branchList[:opts.TopN]
-		}
+		branchList = sortAndTrim(branchList, func(a, b branchTotal) bool { return a.total > b.total }, opts.TopN)
 
 		for _, br := range branchList {
-			models := branchMap[br.branch]
-			var sorted []modelEntry
-			for mname, b := range models {
-				sorted = append(sorted, modelEntry{mname, b})
-			}
-			sort.Slice(sorted, func(i, j int) bool { return sorted[i].bucket.Cost > sorted[j].bucket.Cost })
-
-			names := wrapName(br.branch, 25)
-			for i, m := range sorted {
-				n := ""
-				if i < len(names) {
-					n = names[i]
-				}
-				b := m.bucket
-				fmt.Printf("  %-30s %s %7d %s\n",
-					n, cyan.Sprintf("%-16s", shortModel(m.name)),
-					b.Requests, colorCost(b.Cost, 10))
-			}
-			for i := len(sorted); i < len(names)-1; i++ {
-				fmt.Printf("  %s\n", names[i])
-			}
-			subtotalName := ""
-			if len(names) > len(sorted) {
-				subtotalName = names[len(names)-1]
-			}
-			fmt.Printf("  %-30s %-16s %7s %s\n",
-				subtotalName, "SUBTOTAL", "", colorCost(br.total, 10))
-			fmt.Println()
+			printBreakdownGroup(br.branch, branchMap[br.branch], br.total, 30, 25)
 		}
 	}
 	fmt.Println()
@@ -774,10 +701,7 @@ func printAgentBreakdown(data *ToolResult, topN int) {
 	for name, count := range data.AgentCounts {
 		agents = append(agents, agentEntry{name, count, data.AgentTotalTime[name], len(data.AgentProjects[name])})
 	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].count > agents[j].count })
-	if topN > 0 && len(agents) > topN {
-		agents = agents[:topN]
-	}
+	agents = sortAndTrim(agents, func(a, b agentEntry) bool { return a.count > b.count }, topN)
 
 	for _, a := range agents {
 		avgStr := "-"
@@ -822,10 +746,7 @@ func printSkillBreakdown(data *ToolResult, topN int) {
 	for name, count := range data.SkillCounts {
 		skills = append(skills, toolEntry{name: name, count: count, projs: len(data.SkillProjects[name])})
 	}
-	sort.Slice(skills, func(i, j int) bool { return skills[i].count > skills[j].count })
-	if topN > 0 && len(skills) > topN {
-		skills = skills[:topN]
-	}
+	skills = sortAndTrim(skills, func(a, b toolEntry) bool { return a.count > b.count }, topN)
 
 	for _, s := range skills {
 		names := wrapName(s.name, 44)
@@ -870,10 +791,7 @@ func printToolUsage(data *ToolResult, topN int) {
 	for name, count := range data.ToolCounts {
 		tools = append(tools, toolEntry{name, count, data.ToolErrors[name], len(data.ToolProjects[name])})
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].count > tools[j].count })
-	if topN > 0 && len(tools) > topN {
-		tools = tools[:topN]
-	}
+	tools = sortAndTrim(tools, func(a, b toolEntry) bool { return a.count > b.count }, topN)
 
 	for _, t := range tools {
 		errStr := "-"
@@ -922,19 +840,13 @@ func printToolsJSON(data *ToolResult, topN int) {
 		}
 		tools = append(tools, jsonToolRow{name, count, errs, rate, len(data.ToolProjects[name])})
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Invocations > tools[j].Invocations })
-	if topN > 0 && len(tools) > topN {
-		tools = tools[:topN]
-	}
+	tools = sortAndTrim(tools, func(a, b jsonToolRow) bool { return a.Invocations > b.Invocations }, topN)
 
 	var skills []jsonSkillRow
 	for name, count := range data.SkillCounts {
 		skills = append(skills, jsonSkillRow{name, count, len(data.SkillProjects[name])})
 	}
-	sort.Slice(skills, func(i, j int) bool { return skills[i].Invocations > skills[j].Invocations })
-	if topN > 0 && len(skills) > topN {
-		skills = skills[:topN]
-	}
+	skills = sortAndTrim(skills, func(a, b jsonSkillRow) bool { return a.Invocations > b.Invocations }, topN)
 
 	var agents []jsonAgentRow
 	for name, count := range data.AgentCounts {
@@ -945,10 +857,7 @@ func printToolsJSON(data *ToolResult, topN int) {
 		}
 		agents = append(agents, jsonAgentRow{name, count, avgMs, totalMs, len(data.AgentProjects[name])})
 	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].Invocations > agents[j].Invocations })
-	if topN > 0 && len(agents) > topN {
-		agents = agents[:topN]
-	}
+	agents = sortAndTrim(agents, func(a, b jsonAgentRow) bool { return a.Invocations > b.Invocations }, topN)
 
 	unused := unusedSkills(data)
 
