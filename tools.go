@@ -142,7 +142,10 @@ func parseSkillListing(content string) []string {
 		}
 		line = strings.TrimPrefix(line, "- ")
 		if idx := strings.Index(line, ": "); idx > 0 {
-			skills = append(skills, line[:idx])
+			line = line[:idx]
+		}
+		if line = strings.TrimSpace(line); line != "" {
+			skills = append(skills, line)
 		}
 	}
 	return skills
