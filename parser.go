@@ -49,6 +49,10 @@ type jsonRecord struct {
 	} `json:"message"`
 }
 
+// parseLocation controls how UTC timestamps are bucketed into calendar days.
+// Defaults to time.Local; set to time.UTC via the -utc flag.
+var parseLocation = time.Local
+
 type dedupRecord struct {
 	Model     string
 	Project   string
@@ -70,14 +74,14 @@ func fastSuffix(speed string) string {
 	return ""
 }
 
-// localMidnightCutoff returns the local-midnight start of the days-long window
-// (inclusive of today), and whether a cutoff applies at all.
+// localMidnightCutoff returns the midnight start of the days-long window
+// (inclusive of today) in parseLocation, and whether a cutoff applies at all.
 func localMidnightCutoff(days int) (cutoff time.Time, hasCutoff bool) {
 	if days <= 0 {
 		return time.Time{}, false
 	}
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1)), true
+	now := time.Now().In(parseLocation)
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, parseLocation).AddDate(0, 0, -(days - 1)), true
 }
 
 func captureCwd(paths map[string]string, slug, cwd string) {
@@ -103,7 +107,7 @@ func parseDateStr(timestamp string, cutoff time.Time, hasCutoff bool) (dateStr s
 	if hasCutoff && parsed.Before(cutoff) {
 		return "", time.Time{}, true, false
 	}
-	return parsed.Local().Format("2006-01-02"), parsed, false, false
+	return parsed.In(parseLocation).Format("2006-01-02"), parsed, false, false
 }
 
 func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string, deduped map[string]*dedupRecord, projectPaths map[string]string) (rawCount, parseErrs int, fileErr error) {

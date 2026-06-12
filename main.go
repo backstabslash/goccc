@@ -58,6 +58,7 @@ func main() {
 	tools := flag.Bool("tools", false, "Show tool and skill usage analytics")
 	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
 	currencyRateFlag := flag.Float64("currency-rate", 0, "Override exchange rate from USD (requires -currency-symbol)")
+	utc := flag.Bool("utc", false, "Bucket days by UTC instead of local time (matches Anthropic API reporting)")
 
 	flag.IntVar(days, "d", 0, "Short for -days")
 	flag.StringVar(project, "p", "", "Short for -project")
@@ -91,6 +92,10 @@ func main() {
 
 	if *noColor {
 		noColorFlag = true
+	}
+
+	if *utc {
+		parseLocation = time.UTC
 	}
 
 	if err := initConfig(*currencySymbolFlag, *currencyRateFlag); err != nil {

@@ -68,15 +68,16 @@ goccc -tools -project myapp -json # Tool analytics filtered by project, as JSON
 goccc can serve as a [Claude Code statusline](https://code.claude.com/docs/en/statusline) — a fully customizable, live cost dashboard right in your terminal prompt.
 
 ```text
-💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔌 2 MCPs (confluence, jira) · 🔋 94% (1.5/5h) · 🤖 Opus 4.6
+💸 $1.23 session · 💰 $5.67 today · 💭 45% ctx · 🔋 94% (1.5/5h) · 🤖 Opus 4.6
 ```
 
 - **💸 Session cost** — parsed from the current session's JSONL files using goccc's pricing table
 - **💰 Today's total** — aggregated across all sessions today (shown only when higher than session cost)
 - **💭 Context %** — context window usage percentage
-- **🔌 MCPs** — active MCP servers (from settings, marketplace plugins, and project config; respects per-project disables)
 - **🔋 5h / 7d window** — remaining percentage of the usage window with elapsed time (subscription users only; hidden for API billing). Emoji switches to 🪫 below 25%
 - **🤖 Model** — current model
+
+The `mcp` segment (active MCP servers) is available but off by default — add it to `segments` to enable it.
 
 Values are color-coded: cost and context turn yellow → red as they increase; rate limit windows are inverted — yellow below 50%, red below 25% remaining.
 
@@ -254,6 +255,7 @@ JSON output always reports costs in USD, with a `currency` metadata object when 
 | `-json` | — | `false` | Output as JSON |
 | `-no-color` | — | `false` | Disable colored output (also respects `NO_COLOR` env) |
 | `-base-dir` | — | `~/.claude` | Base directory for Claude Code data |
+| `-utc` | — | `false` | Bucket days by UTC instead of local time (matches Anthropic API reporting) |
 | `-session-end` | — | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
 | `-statusline` | — | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
 | `-currency-symbol` | — | — | Override currency symbol (requires `-currency-rate`) |

@@ -319,6 +319,27 @@ func TestDaysFilter_BoundaryExactCutoff(t *testing.T) {
 	}
 }
 
+func TestParseDateStr_BucketsByParseLocation(t *testing.T) {
+	defer func() { parseLocation = time.Local }()
+
+	// 01:30 UTC falls on different calendar days depending on the zone.
+	const utcTimestamp = "2026-06-12T01:30:00Z"
+	cases := []struct {
+		loc  *time.Location
+		want string
+	}{
+		{time.UTC, "2026-06-12"},
+		{time.FixedZone("UTC-3", -3*60*60), "2026-06-11"},
+	}
+	for _, c := range cases {
+		parseLocation = c.loc
+		got, _, _, _ := parseDateStr(utcTimestamp, time.Time{}, false)
+		if got != c.want {
+			t.Errorf("parseLocation=%s: got %q, want %q", c.loc, got, c.want)
+		}
+	}
+}
+
 func TestDaysFilter_ZeroMeansAllTime(t *testing.T) {
 	lines := []string{
 		makeRecord("req_ancient", "claude-opus-4-6", "2020-01-01T00:00:00Z", 100, 50, 0, 0, 0),

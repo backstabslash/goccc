@@ -398,7 +398,8 @@ func TestFormatStatusline_WithMCPs(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	result := formatStatuslineWithConfig(0.50, 2.00, input, []string{"github", "jira", "slack"}, "", nil)
+	cfg := &StatuslineConfig{Segments: []string{"mcp", "model"}}
+	result := formatStatuslineWithConfig(0.50, 2.00, input, []string{"github", "jira", "slack"}, "", cfg)
 	if !strings.Contains(result, "🔌 3 MCPs (github, jira, slack)") {
 		t.Errorf("output %q missing MCP section", result)
 	}
@@ -415,7 +416,8 @@ func TestFormatStatusline_SingleMCP(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	result := formatStatuslineWithConfig(0.50, 2.00, input, []string{"context7"}, "", nil)
+	cfg := &StatuslineConfig{Segments: []string{"mcp"}}
+	result := formatStatuslineWithConfig(0.50, 2.00, input, []string{"context7"}, "", cfg)
 	if !strings.Contains(result, "🔌 1 MCP (context7)") {
 		t.Errorf("output %q missing singular MCP section", result)
 	}
@@ -429,12 +431,13 @@ func TestFormatStatusline_NoMCPs(t *testing.T) {
 	input.Model.ID = "claude-opus-4-6"
 	input.ContextWindow.UsedPercentage = 45.0
 
-	result := formatStatuslineWithConfig(0.50, 2.00, input, nil, "", nil)
+	cfg := &StatuslineConfig{Segments: []string{"mcp"}}
+	result := formatStatuslineWithConfig(0.50, 2.00, input, nil, "", cfg)
 	if strings.Contains(result, "🔌") {
 		t.Errorf("output %q should not contain MCP section when no MCPs", result)
 	}
 
-	result2 := formatStatuslineWithConfig(0.50, 2.00, input, []string{}, "", nil)
+	result2 := formatStatuslineWithConfig(0.50, 2.00, input, []string{}, "", cfg)
 	if strings.Contains(result2, "🔌") {
 		t.Errorf("output %q should not contain MCP section for empty slice", result2)
 	}
@@ -449,7 +452,8 @@ func TestFormatStatusline_ManyMCPsTruncated(t *testing.T) {
 	input.ContextWindow.UsedPercentage = 45.0
 
 	mcps := []string{"asana", "context7", "firebase", "github", "jira"}
-	result := formatStatuslineWithConfig(0.50, 2.00, input, mcps, "", nil)
+	cfg := &StatuslineConfig{Segments: []string{"mcp"}}
+	result := formatStatuslineWithConfig(0.50, 2.00, input, mcps, "", cfg)
 	if !strings.Contains(result, "🔌 5 MCPs (asana, context7, firebase, ...)") {
 		t.Errorf("output %q missing truncated MCP section", result)
 	}

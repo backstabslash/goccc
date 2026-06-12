@@ -19,7 +19,7 @@ type SegmentOptions struct {
 	Label string `json:"label,omitempty"`
 }
 
-var defaultSegments = []string{"session_cost", "today_cost", "ctx", "mcp", "5h", "model"}
+var defaultSegments = []string{"session_cost", "today_cost", "ctx", "5h", "model"}
 
 const defaultSeparator = " · "
 

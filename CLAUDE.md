@@ -39,7 +39,7 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 - **Externalized pricing** — all pricing lives in `pricing.json` (embedded via `//go:embed`, remote-cached 24h). Adding a model or adjusting pricing = edit `pricing.json` only, no code changes. Cache fields are optional — `fillCacheDefaults()` derives from input price. Fast mode pricing lives in `fast_models` map — same structure as `models`, resolved when `usage.speed == "fast"`
 - **Pricing resolution** — exact model ID → longest family prefix → `defaultPricing`
 - **Fast mode bucketing** — parser appends `:fast` suffix to model key when `speed == "fast"`, creating separate buckets. `shortModel()` and `resolvePricing()` strip the suffix for display/lookup
-- **Local timezone everywhere** — local midnight for cutoffs, `parsed.Local()` for date bucketing. Never `UTC()` for user-facing dates
+- **Local timezone everywhere** — day bucketing/cutoffs use `parseLocation` (defaults to `time.Local`). Never `UTC()` for user-facing dates. The `-utc` flag is the one sanctioned opt-in: it sets `parseLocation = time.UTC` to match Anthropic API reporting
 - **MCP detection is best-effort** — returns nil/empty on error; statusline never fails due to missing config
 - **Config** — `~/.goccc.json` stores currency, thresholds, and statusline config. `initConfig()` loads once. JSON output costs always in USD
 - **Session end hook** — writes to `/dev/tty` (bypasses Claude Code's stderr capture), falls back to stderr on Windows. Silently exits on any error
@@ -49,5 +49,5 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 
 - Don't change pricing in Go code — edit `pricing.json` (models, fast_models, families, display_names, long_context_threshold, web_search_cost)
 - Don't use `log.Fatal` or `panic` — use `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)`
-- Don't use UTC for day boundaries — use `time.Date(...)` with `now.Location()` for local midnight
+- Don't use UTC for day boundaries by default — bucket via `parseLocation` (which the `-utc` flag flips to UTC), not a hardcoded zone
 - Don't add JSON tags to `Bucket` — it's never directly marshalled; `printJSON` defines its own output structs
