@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -98,10 +99,10 @@ func colorCost(c float64, width int) string {
 	if width == 0 {
 		return colorize(s, c)
 	}
-	if len(s) > width {
-		width = len(s)
+	if pad := width - utf8.RuneCountInString(s); pad > 0 {
+		s = strings.Repeat(" ", pad) + s
 	}
-	return colorize(fmt.Sprintf("%*s", width, s), c)
+	return colorize(s, c)
 }
 
 // Prefer real cwd over slug — slug encoding loses '/' vs '_' vs '.'.
@@ -371,6 +372,11 @@ func printSectionHeader(title string) {
 	bold.Println(strings.Repeat("─", 80))
 }
 
+// tableRule returns an underline matching the visible width of header
+func tableRule(header string) string {
+	return "  " + strings.Repeat("─", utf8.RuneCountInString(header)-2)
+}
+
 func sortedByCost(models map[string]*Bucket) []modelEntry {
 	entries := make([]modelEntry, 0, len(models))
 	for name, b := range models {
@@ -407,9 +413,11 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 
 	// Model breakdown
 	printSectionHeader("MODEL BREAKDOWN")
-	fmt.Printf("  %-16s %9s %9s %9s %9s %7s %10s\n",
+	header := fmt.Sprintf("  %-16s %9s %9s %9s %9s %7s %10s",
 		"Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
-	fmt.Println("  " + strings.Repeat("─", 75))
+	fmt.Println(header)
+	rule := tableRule(header)
+	fmt.Println(rule)
 
 	totals := data.Totals()
 
@@ -424,7 +432,7 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 			b.Requests, colorCost(b.Cost, 10))
 	}
 
-	fmt.Println("  " + strings.Repeat("─", 75))
+	fmt.Println(rule)
 	bold.Printf("  %-16s %9s %9s %9s %9s %7d %s\n",
 		"TOTAL",
 		fmtTokens(totals.Input), fmtTokens(totals.Output),
@@ -457,9 +465,10 @@ func printSummary(data *ParseResult, opts OutputOptions) {
 // the period label, and a trailing subtotal row closes the group.
 func printPeriodBreakdown(title, colLabel string, source map[string]map[string]*Bucket, topN int) {
 	printSectionHeader(title)
-	fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6s %8s\n",
+	header := fmt.Sprintf("  %-12s %-11s %7s %7s %8s %8s %6s %10s",
 		colLabel, "Model", "Input", "Output", "Cache R", "Cache W", "Reqs", "Cost")
-	fmt.Println("  " + strings.Repeat("─", 75))
+	fmt.Println(header)
+	fmt.Println(tableRule(header))
 
 	var keys []string
 	for k := range source {
@@ -488,11 +497,11 @@ func printPeriodBreakdown(title, colLabel string, source map[string]map[string]*
 				label, cyan.Sprintf("%-11s", shortModel(m.name)),
 				fmtTokens(b.InputTokens), fmtTokens(b.OutputTokens),
 				fmtTokens(b.CacheRead), fmtTokens(b.TotalCacheWrite()),
-				b.Requests, colorCost(b.Cost, 8))
+				b.Requests, colorCost(b.Cost, 10))
 			first = false
 		}
 		fmt.Printf("  %-12s %-11s %7s %7s %8s %8s %6d %s\n",
-			"", "", "", "", "", "", reqs, colorCost(cost, 8))
+			"", "", "", "", "", "", reqs, colorCost(cost, 10))
 		fmt.Println()
 	}
 }
@@ -557,9 +566,10 @@ func printBreakdownGroup(name string, models map[string]*Bucket, total float64, 
 
 func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 	printSectionHeader("PROJECT BREAKDOWN")
-	fmt.Printf("  %-35s %-16s %7s %10s\n",
+	header := fmt.Sprintf("  %-35s %-16s %7s %10s",
 		"Project", "Model", "Reqs", "Cost")
-	fmt.Println("  " + strings.Repeat("─", 75))
+	fmt.Println(header)
+	fmt.Println(tableRule(header))
 
 	type projTotal struct {
 		slug  string
@@ -583,9 +593,10 @@ func printProjectBreakdown(data *ParseResult, opts OutputOptions) {
 
 func printBranchBreakdown(data *ParseResult, opts OutputOptions) {
 	printSectionHeader("BRANCH BREAKDOWN")
-	fmt.Printf("  %-30s %-16s %7s %10s\n",
+	header := fmt.Sprintf("  %-30s %-16s %7s %10s",
 		"Branch", "Model", "Reqs", "Cost")
-	fmt.Println("  " + strings.Repeat("─", 75))
+	fmt.Println(header)
+	fmt.Println(tableRule(header))
 
 	type branchTotal struct {
 		branch string
@@ -687,8 +698,9 @@ func printAgentBreakdown(data *ToolResult, topN int) {
 	bold.Printf("  AGENT BREAKDOWN (%d spawned, %d unique, %s sessions)\n",
 		totalAgents, len(data.AgentCounts), fmtCount(len(data.AgentSessions)))
 	bold.Println(strings.Repeat("─", 80))
-	fmt.Printf("  %-28s  %12s  %10s  %8s  %10s\n", "Agent Type", "Invocations", "Avg Time", "Total", "Projects")
-	fmt.Println("  " + strings.Repeat("─", 76))
+	header := fmt.Sprintf("  %-28s  %12s  %10s  %8s  %10s", "Agent Type", "Invocations", "Avg Time", "Total", "Projects")
+	fmt.Println(header)
+	fmt.Println(tableRule(header))
 
 	type agentEntry struct {
 		name      string
@@ -739,8 +751,9 @@ func printSkillBreakdown(data *ToolResult, topN int) {
 	bold.Println(strings.Repeat("─", 80))
 	bold.Println(header)
 	bold.Println(strings.Repeat("─", 80))
-	fmt.Printf("  %-46s  %14s  %12s\n", "Skill", "Invocations", "Projects")
-	fmt.Println("  " + strings.Repeat("─", 76))
+	colHeader := fmt.Sprintf("  %-46s  %14s  %12s", "Skill", "Invocations", "Projects")
+	fmt.Println(colHeader)
+	fmt.Println(tableRule(colHeader))
 
 	var skills []toolEntry
 	for name, count := range data.SkillCounts {
@@ -784,8 +797,9 @@ func printToolUsage(data *ToolResult, topN int) {
 	bold.Printf("  TOOL BREAKDOWN (%s total, %d unique, %s sessions)\n",
 		fmtCount(totalInvocations), len(data.ToolCounts), fmtCount(len(data.ToolSessions)))
 	bold.Println(strings.Repeat("─", 80))
-	fmt.Printf("  %-38s  %12s  %9s  %11s\n", "Tool", "Invocations", "Errors", "Projects")
-	fmt.Println("  " + strings.Repeat("─", 76))
+	header := fmt.Sprintf("  %-38s  %12s  %9s  %11s", "Tool", "Invocations", "Errors", "Projects")
+	fmt.Println(header)
+	fmt.Println(tableRule(header))
 
 	var tools []toolEntry
 	for name, count := range data.ToolCounts {

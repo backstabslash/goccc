@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestFmtTokens(t *testing.T) {
@@ -43,6 +44,36 @@ func TestFmtCost(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("fmtCost(%f) = %q, want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestColorCostAlignment(t *testing.T) {
+	origNoColor := noColorFlag
+	origCurrency := activeCurrency
+	noColorFlag = true
+	defer func() {
+		noColorFlag = origNoColor
+		activeCurrency = origCurrency
+	}()
+
+	// Multi-byte symbol: € is 3 bytes but 1 visible column. Padding must be
+	// computed by visible width so different magnitudes right-align.
+	activeCurrency.Rate = 1.0
+	activeCurrency.Symbol = "€"
+	activeCurrency.Suffix = false
+
+	const width = 8
+	for _, cost := range []float64{1.23, 12.34, 123.45} {
+		got := colorCost(cost, width)
+		if w := utf8.RuneCountInString(got); w != width {
+			t.Errorf("colorCost(%v, %d) = %q has visible width %d, want %d", cost, width, got, w, width)
+		}
+	}
+
+	// A value wider than the column keeps its full width (no truncation).
+	wide := colorCost(123456.78, width)
+	if w := utf8.RuneCountInString(wide); w < width {
+		t.Errorf("colorCost(123456.78, %d) = %q width %d, want >= %d", width, wide, w, width)
 	}
 }
 
