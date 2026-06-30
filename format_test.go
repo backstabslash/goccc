@@ -29,24 +29,6 @@ func TestFmtTokens(t *testing.T) {
 	}
 }
 
-func TestFmtCost(t *testing.T) {
-	tests := []struct {
-		input    float64
-		expected string
-	}{
-		{0.0001, "$0.00"},
-		{0.5, "$0.50"},
-		{1.0, "$1.00"},
-		{52.18, "$52.18"},
-	}
-	for _, tt := range tests {
-		got := fmtCost(tt.input)
-		if got != tt.expected {
-			t.Errorf("fmtCost(%f) = %q, want %q", tt.input, got, tt.expected)
-		}
-	}
-}
-
 func TestColorCostAlignment(t *testing.T) {
 	origNoColor := noColorFlag
 	origCurrency := activeCurrency

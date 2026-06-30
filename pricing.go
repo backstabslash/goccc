@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-type ModelPricing struct {
+type PriceFields struct {
 	Input               float64 `json:"input"`
 	Output              float64 `json:"output"`
 	CacheRead           float64 `json:"cache_read,omitempty"`
@@ -23,6 +23,17 @@ type ModelPricing struct {
 	LongCtxCacheRead    float64 `json:"long_ctx_cache_read,omitempty"`
 	LongCtxCacheWrite5m float64 `json:"long_ctx_cache_write_5m,omitempty"`
 	LongCtxCacheWrite1h float64 `json:"long_ctx_cache_write_1h,omitempty"`
+}
+
+type ModelPricing struct {
+	PriceFields
+	Schedule []PriceChange `json:"schedule,omitempty"`
+}
+
+type PriceChange struct {
+	From string `json:"from"`
+	PriceFields
+	parsedFrom time.Time // From resolved to midnight UTC at load; what resolution compares
 }
 
 //go:embed pricing.json
@@ -77,7 +88,7 @@ func loadPricingFrom(data []byte) (*PricingData, error) {
 	return &pd, nil
 }
 
-func fillCacheDefaults(p *ModelPricing) {
+func fillCacheDefaults(p *PriceFields) {
 	if p.CacheRead == 0 && p.Input > 0 {
 		p.CacheRead = p.Input * 0.1
 	}
@@ -98,11 +109,46 @@ func fillCacheDefaults(p *ModelPricing) {
 	}
 }
 
+func inheritPrimaries(entry, base PriceFields) PriceFields {
+	if entry.Input == 0 {
+		entry.Input = base.Input
+	}
+	if entry.Output == 0 {
+		entry.Output = base.Output
+	}
+	if entry.LongCtxInput == 0 {
+		entry.LongCtxInput = base.LongCtxInput
+	}
+	if entry.LongCtxOutput == 0 {
+		entry.LongCtxOutput = base.LongCtxOutput
+	}
+	return entry
+}
+
+// normalizePricing parses schedule dates and fills cache defaults. A bad From
+// is dropped rather than fatal, matching the tool's best-effort pricing posture.
+func normalizePricing(p ModelPricing) ModelPricing {
+	fillCacheDefaults(&p.PriceFields)
+	kept := p.Schedule[:0]
+	for _, c := range p.Schedule {
+		t, err := time.Parse("2006-01-02", c.From)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "goccc: warning: skipping pricing schedule entry with invalid from %q: %v\n", c.From, err)
+			continue
+		}
+		c.PriceFields = inheritPrimaries(c.PriceFields, p.PriceFields)
+		fillCacheDefaults(&c.PriceFields)
+		c.parsedFrom = t
+		kept = append(kept, c)
+	}
+	p.Schedule = kept
+	return p
+}
+
 func applyPricing(pd *PricingData) {
 	pricingTable = pd.Models
 	for k, p := range pricingTable {
-		fillCacheDefaults(&p)
-		pricingTable[k] = p
+		pricingTable[k] = normalizePricing(p)
 	}
 	if pd.FastModels != nil {
 		fastPricingTable = pd.FastModels
@@ -110,8 +156,7 @@ func applyPricing(pd *PricingData) {
 		fastPricingTable = make(map[string]ModelPricing)
 	}
 	for k, p := range fastPricingTable {
-		fillCacheDefaults(&p)
-		fastPricingTable[k] = p
+		fastPricingTable[k] = normalizePricing(p)
 	}
 	familyPrefixes = pd.Families
 	sort.Slice(familyPrefixes, func(i, j int) bool {
@@ -220,18 +265,34 @@ func minorAfter(model, prefix string) int {
 	return n
 }
 
-func resolvePricing(model string) ModelPricing {
+// priceAt returns the price effective at ts — the schedule entry with the
+// greatest From <= ts, else the base. A zero ts predates every From, so it
+// yields the base price.
+func (m ModelPricing) priceAt(ts time.Time) PriceFields {
+	best := m.PriceFields
+	var bestFrom time.Time
+	for _, c := range m.Schedule {
+		if ts.Before(c.parsedFrom) || !c.parsedFrom.After(bestFrom) {
+			continue
+		}
+		best, bestFrom = c.PriceFields, c.parsedFrom
+	}
+	return best
+}
+
+func resolvePricing(model string, ts time.Time) ModelPricing {
 	baseModel, isFast := strings.CutSuffix(model, ":fast")
 	resolved, fallback := resolveBaseModel(baseModel)
+	chosen := fallback
 	if isFast && len(fastPricingTable) > 0 {
 		if p, ok := fastPricingTable[resolved]; ok {
-			return p
-		}
-		if p, ok := fastPricingTable[baseModel]; ok {
-			return p
+			chosen = p
+		} else if p, ok := fastPricingTable[baseModel]; ok {
+			chosen = p
 		}
 	}
-	return fallback
+	chosen.PriceFields = chosen.priceAt(ts)
+	return chosen
 }
 
 type CacheCreation struct {
@@ -282,8 +343,8 @@ type CostResult struct {
 	WebSearches int
 }
 
-func calcCostResult(model string, usage Usage) CostResult {
-	p := resolvePricing(model)
+func calcCostResult(model string, usage Usage, ts time.Time) CostResult {
+	p := resolvePricing(model, ts)
 	const mtok = 1_000_000.0
 	cache5m, cache1h := usage.CacheWriteTokens()
 
@@ -312,8 +373,8 @@ func calcCostResult(model string, usage Usage) CostResult {
 	}
 }
 
-func calcCost(model string, usage Usage) float64 {
-	return calcCostResult(model, usage).Cost
+func calcCost(model string, usage Usage, ts time.Time) float64 {
+	return calcCostResult(model, usage, ts).Cost
 }
 
 func shortModel(model string) string {

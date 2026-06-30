@@ -98,7 +98,7 @@ func parseSession(transcriptPath string) (map[string]*dedupRecord, error) {
 func sessionCost(deduped map[string]*dedupRecord) float64 {
 	var total float64
 	for _, r := range deduped {
-		total += calcCost(r.Model, r.Usage)
+		total += calcCost(r.Model, r.Usage, r.Timestamp)
 	}
 	return total
 }
@@ -195,7 +195,7 @@ func readSessionEndInput(r io.Reader) (*SessionEndInput, error) {
 func sessionModels(deduped map[string]*dedupRecord) []string {
 	costByModel := make(map[string]float64)
 	for _, r := range deduped {
-		costByModel[r.Model] += calcCost(r.Model, r.Usage)
+		costByModel[r.Model] += calcCost(r.Model, r.Usage, r.Timestamp)
 	}
 	type mc struct {
 		name string

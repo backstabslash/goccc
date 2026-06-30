@@ -233,7 +233,7 @@ func parseLogs(baseDir string, days int, projectFilter string) (*ParseResult, er
 	result.ParseErrors = parseErrors
 
 	for _, r := range deduped {
-		cr := calcCostResult(r.Model, r.Usage)
+		cr := calcCostResult(r.Model, r.Usage, r.Timestamp)
 		cache5m, cache1h := r.Usage.CacheWriteTokens()
 
 		buckets := []*Bucket{

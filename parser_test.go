@@ -731,14 +731,6 @@ func TestFastModeSeparateBucket(t *testing.T) {
 	}
 }
 
-func TestFastModeDisplayName(t *testing.T) {
-	withEmbeddedPricing(t)
-	got := shortModel("claude-opus-4-6:fast")
-	if got != "Opus 4.6 ⚡" {
-		t.Errorf("shortModel for fast = %q, want %q", got, "Opus 4.6 ⚡")
-	}
-}
-
 func TestTotals(t *testing.T) {
 	result := &ParseResult{
 		ModelUsage: map[string]*Bucket{

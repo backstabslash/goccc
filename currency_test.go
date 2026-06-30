@@ -111,6 +111,7 @@ func TestFmtCostWithCurrency(t *testing.T) {
 	}{
 		{"USD default", "", false, 0, 1.50, "$1.50"},
 		{"USD small", "", false, 0, 0.005, "$0.01"},
+		{"USD rounds to zero", "", false, 0, 0.0001, "$0.00"},
 		{"ZAR large", "R", false, 18.5, 1.00, "R18.50"},
 		{"ZAR small", "R", false, 18.5, 0.01, "R0.18"},
 		{"EUR large", "€", false, 0.92, 10.0, "€9.20"},
