@@ -107,8 +107,8 @@ func colorCost(c float64, width int) string {
 
 // Prefer real cwd over slug — slug encoding loses '/' vs '_' vs '.'.
 func displayProject(slug string, paths map[string]string) string {
-	if real := paths[slug]; real != "" {
-		return shortenRealPath(real)
+	if path := paths[slug]; path != "" {
+		return shortenRealPath(path)
 	}
 	return shortProject(slug)
 }

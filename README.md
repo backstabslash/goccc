@@ -1,6 +1,6 @@
 [![CI](https://github.com/backstabslash/goccc/actions/workflows/ci.yml/badge.svg)](https://github.com/backstabslash/goccc/actions/workflows/ci.yml)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](go.mod)
-[![Go Report Card](https://goreportcard.com/badge/github.com/backstabslash/goccc)](https://goreportcard.com/report/github.com/backstabslash/goccc)
+[![CodeFactor](https://img.shields.io/codefactor/grade/github/backstabslash/goccc)](https://www.codefactor.io/repository/github/backstabslash/goccc)
 [![Latest Release](https://img.shields.io/github/v/release/backstabslash/goccc?color=blue)](https://github.com/backstabslash/goccc/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 

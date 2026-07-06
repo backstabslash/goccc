@@ -25,21 +25,15 @@ func TestFixture_RealisticConversation(t *testing.T) {
 
 	// --- File and record counts ---
 
-	if data.TotalFiles != 2 {
-		t.Errorf("TotalFiles = %d, want 2 (main + subagent)", data.TotalFiles)
-	}
+	assertInt(t, "TotalFiles", data.TotalFiles, 2)
 
 	// 7 unique requestIds after dedup:
 	//   main:     req_main_001, req_main_002, req_main_003, req_main_004
 	//   subagent: req_sub_001,  req_sub_002,  req_sub_003
 	// <synthetic> req_error_001 is filtered out.
-	if data.TotalRecords != 7 {
-		t.Errorf("TotalRecords = %d, want 7", data.TotalRecords)
-	}
+	assertInt(t, "TotalRecords", data.TotalRecords, 7)
 
-	if data.ParseErrors != 0 {
-		t.Errorf("ParseErrors = %d, want 0", data.ParseErrors)
-	}
+	assertInt(t, "ParseErrors", data.ParseErrors, 0)
 
 	// --- Opus 4.6 model bucket ---
 	// Final values after dedup (last-write-wins per requestId):
@@ -96,9 +90,7 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	assertCost(t, "haiku.Cost", haiku.Cost, 0.057625)
 
 	// --- No other models should exist ---
-	if len(data.ModelUsage) != 2 {
-		t.Errorf("len(ModelUsage) = %d, want 2 (opus + haiku)", len(data.ModelUsage))
-	}
+	assertInt(t, "len(ModelUsage)", len(data.ModelUsage), 2)
 
 	// --- Daily aggregation ---
 
@@ -141,9 +133,7 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	if proj == nil {
 		t.Fatal("missing project bucket")
 	}
-	if len(proj) != 2 {
-		t.Errorf("project has %d models, want 2", len(proj))
-	}
+	assertInt(t, "len(project models)", len(proj), 2)
 	assertCost(t, "project.opus.Cost", proj["claude-opus-4-6"].Cost, 1.2485)
 	assertCost(t, "project.haiku.Cost", proj["claude-haiku-4-5-20251001"].Cost, 0.057625)
 
@@ -157,9 +147,7 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	if mainBranch == nil {
 		t.Fatal("missing 'main' branch bucket")
 	}
-	if len(mainBranch) != 2 {
-		t.Errorf("expected 2 models in main branch, got %d", len(mainBranch))
-	}
+	assertInt(t, "len(main branch models)", len(mainBranch), 2)
 	assertCost(t, "branch.main.opus.Cost", mainBranch["claude-opus-4-6"].Cost, 1.2485)
 	assertCost(t, "branch.main.haiku.Cost", mainBranch["claude-haiku-4-5-20251001"].Cost, 0.057625)
 }
