@@ -79,6 +79,7 @@ var segmentRegistry = map[string]segmentRenderer{
 	"lines":        renderLines,
 	"duration":     renderDuration,
 	"cwd":          renderCwd,
+	"worktree":     renderWorktree,
 	"version":      renderVersion,
 }
 
@@ -271,16 +272,33 @@ func renderBranch(ctx *StatuslineContext) string {
 	return fmt.Sprintf("%s %s", emoji, ctx.Branch)
 }
 
-func renderCwd(ctx *StatuslineContext) string {
-	cwd := ctx.Input.Cwd
-	if cwd == "" {
-		cwd = ctx.Input.Workspace.CurrentDir
+// statuslineCwd returns the session's working directory, preferring the explicit
+// cwd and falling back to the workspace directory.
+func statuslineCwd(ctx *StatuslineContext) string {
+	if ctx.Input.Cwd != "" {
+		return ctx.Input.Cwd
 	}
+	return ctx.Input.Workspace.CurrentDir
+}
+
+func renderCwd(ctx *StatuslineContext) string {
+	cwd := statuslineCwd(ctx)
 	if cwd == "" {
 		return ""
 	}
 	emoji := segmentEmoji("cwd", "📁", ctx.Options)
 	return fmt.Sprintf("%s %s", emoji, filepath.Base(cwd))
+}
+
+// renderWorktree resolves the worktree from the filesystem on demand — cheap,
+// and assembleStatusline only reaches renderers the user actually configured.
+func renderWorktree(ctx *StatuslineContext) string {
+	name := detectWorktree(statuslineCwd(ctx))
+	if name == "" {
+		return ""
+	}
+	emoji := segmentEmoji("worktree", "🌳", ctx.Options)
+	return fmt.Sprintf("%s %s", emoji, name)
 }
 
 func renderVersion(ctx *StatuslineContext) string {
