@@ -692,43 +692,31 @@ func TestBranchAggregation_NoBranch(t *testing.T) {
 }
 
 func TestFastModeSeparateBucket(t *testing.T) {
-	withEmbeddedPricing(t)
+	applyTestPricing(t, testPricingJSON)
 	base := setupProject(t, "test-project", []string{
-		makeRecordWithSpeed("req_1", "claude-opus-4-6", ts(0, 10), 100_000, 50_000, "standard"),
-		makeRecordWithSpeed("req_2", "claude-opus-4-6", ts(0, 11), 100_000, 50_000, "fast"),
-		makeRecordWithSpeed("req_3", "claude-opus-4-6", ts(0, 12), 100_000, 50_000, ""),
+		makeRecordWithSpeed("req_1", "claude-alpha-9", ts(0, 10), 100_000, 50_000, "standard"),
+		makeRecordWithSpeed("req_2", "claude-alpha-9", ts(0, 11), 100_000, 50_000, "fast"),
+		makeRecordWithSpeed("req_3", "claude-alpha-9", ts(0, 12), 100_000, 50_000, ""),
 	})
 	data, err := parseLogs(base, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(data.ModelUsage) != 2 {
-		t.Errorf("expected 2 model buckets (standard + fast), got %d", len(data.ModelUsage))
-	}
-	standard, ok := data.ModelUsage["claude-opus-4-6"]
+	assertInt(t, "model buckets", len(data.ModelUsage), 2)
+	standard, ok := data.ModelUsage["claude-alpha-9"]
 	if !ok || standard == nil {
 		t.Fatal("missing standard bucket")
 	}
-	if standard.Requests != 2 {
-		t.Errorf("expected 2 standard requests, got %d", standard.Requests)
-	}
-	fast, ok := data.ModelUsage["claude-opus-4-6:fast"]
+	assertInt(t, "standard requests", standard.Requests, 2)
+	assertCost(t, "standard cost", standard.Cost, 12.0)
+
+	fast, ok := data.ModelUsage["claude-alpha-9:fast"]
 	if !ok || fast == nil {
 		t.Fatal("missing fast bucket")
 	}
-	if fast.Requests != 1 {
-		t.Errorf("expected 1 fast request, got %d", fast.Requests)
-	}
-
-	// Verify fast costs 6x more than standard for same tokens
-	if fast.Cost == 0 {
-		t.Error("fast cost should not be zero")
-	}
-	ratio := fast.Cost / (standard.Cost / 2) // per-request comparison
-	if ratio < 5.9 || ratio > 6.1 {
-		t.Errorf("expected ~6x ratio, got %.2f", ratio)
-	}
+	assertInt(t, "fast requests", fast.Requests, 1)
+	assertCost(t, "fast cost", fast.Cost, 18.0)
 }
 
 func TestTotals(t *testing.T) {

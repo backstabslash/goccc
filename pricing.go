@@ -226,19 +226,30 @@ func waitForPricingRefresh(timeout time.Duration) {
 	}
 }
 
+// hasModelPrefix reports whether model starts with prefix at a version boundary.
+// Date stamps start with "2", so a plain strings.HasPrefix lets a "-2" minor
+// (claude-opus-5-2) swallow its own family's dated IDs (claude-opus-5-2026...).
+func hasModelPrefix(model, prefix string) bool {
+	if !strings.HasPrefix(model, prefix) {
+		return false
+	}
+	rest := model[len(prefix):]
+	return rest == "" || rest[0] == '-'
+}
+
 func resolveBaseModel(model string) (string, ModelPricing) {
 	if p, ok := pricingTable[model]; ok {
 		return model, p
 	}
 	for _, fp := range familyPrefixes {
-		if !strings.HasPrefix(model, fp.Prefix) {
+		if !hasModelPrefix(model, fp.Prefix) {
 			continue
 		}
 		pick := fp.Model
 		if minorAfter(model, fp.Prefix) > minorAfter(fp.Model, fp.Prefix) {
 			bestV := -1
 			for k := range pricingTable {
-				if !strings.HasPrefix(k, fp.Prefix) {
+				if !hasModelPrefix(k, fp.Prefix) {
 					continue
 				}
 				if v := minorAfter(k, fp.Prefix); v > bestV {
@@ -377,14 +388,16 @@ func calcCost(model string, usage Usage, ts time.Time) float64 {
 	return calcCostResult(model, usage, ts).Cost
 }
 
+const fastMarker = " ⚡"
+
 func shortModel(model string) string {
 	base, isFast := strings.CutSuffix(model, ":fast")
 	m := strings.TrimPrefix(strings.ToLower(base), "claude-")
-	if isFast {
-		m += ":fast"
-	}
 	for _, dn := range displayNames {
-		if strings.HasPrefix(m, dn.Prefix) {
+		if hasModelPrefix(m, dn.Prefix) {
+			if isFast {
+				return dn.Name + fastMarker
+			}
 			return dn.Name
 		}
 	}

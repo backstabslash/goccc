@@ -1,9 +1,17 @@
 version: "2"
 
 linters:
+  enable:
+    - gocyclo
   settings:
     errcheck:
       exclude-functions:
         - fmt.Print
         - fmt.Printf
         - fmt.Println
+    gocyclo:
+      min-complexity: 15
+
+formatters:
+  enable:
+    - gofmt

@@ -6,10 +6,25 @@ import (
 	"testing"
 )
 
+// Tests read the repo's embedded pricing.json, never the user's cache
+// The cache path itself is covered by TestInitPricingUsesCachedFile / FallsBackToEmbedded.
 func TestMain(m *testing.M) {
+	pricingCachePath = func() string { return "" }
 	initPricing()
 	os.Exit(m.Run())
 }
+
+// Synthetic rates for the model IDs the fixture JSONL uses, so a pricing.json
+// edit can never break a parser test. Cache tiers derive from input.
+const fixturePricingJSON = `{
+	"models": {
+		"claude-opus-4-6":            { "input": 10.00, "output": 100.00 },
+		"claude-haiku-4-5-20251001":  { "input": 1.00,  "output": 10.00 }
+	},
+	"families": [],
+	"default_model": "claude-opus-4-6",
+	"display_names": []
+}`
 
 // TestFixture_RealisticConversation runs parseLogs against the static testdata/
 // fixture — a multi-turn JWT refactor conversation with streaming duplicates,
@@ -18,6 +33,7 @@ func TestMain(m *testing.M) {
 //
 // All expected values are hand-calculated from the fixture JSONL files.
 func TestFixture_RealisticConversation(t *testing.T) {
+	applyTestPricing(t, fixturePricingJSON)
 	data, err := parseLogs("testdata", 0, "")
 	if err != nil {
 		t.Fatalf("parseLogs: %v", err)
@@ -54,14 +70,14 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	assertInt(t, "opus.CacheWrite5m", opus.CacheWrite5m, 10000)
 	assertInt(t, "opus.CacheWrite1h", opus.CacheWrite1h, 12000)
 
-	// Opus cost per request (pricing: Input=$5/M, Output=$25/M,
-	//   CacheWrite5m=$6.25/M, CacheWrite1h=$10/M, CacheRead=$0.50/M):
-	//   req_main_001: 0.075  + 0.0625 + 0.05   + 0.03  + 0.025  = 0.2425
-	//   req_main_002: 0.11   + 0.12   + 0      + 0.05  + 0.031  = 0.311
-	//   req_main_003: 0.15   + 0.155  + 0.0125 + 0     + 0.035  = 0.3525
-	//   req_main_004: 0.175  + 0.0875 + 0      + 0.04  + 0.04   = 0.3425 (flat fallback → 1h)
-	//   Total: 1.2485
-	assertCost(t, "opus.Cost", opus.Cost, 1.2485)
+	// Cost per request at the fixture's Opus rates — input $10/M, output $100/M,
+	// cache read/5m/1h derived at 1.0/12.5/20.0 — as in + out + read + cw5m + cw1h:
+	//   req_main_001: 0.15 + 0.25 + 0.05  + 0.10  + 0.06 = 0.61
+	//   req_main_002: 0.22 + 0.48 + 0.062 + 0     + 0.10 = 0.862
+	//   req_main_003: 0.30 + 0.62 + 0.07  + 0.025 + 0    = 1.015
+	//   req_main_004: 0.35 + 0.35 + 0.08  + 0     + 0.08 = 0.86
+	//   Total: 3.347
+	assertCost(t, "opus.Cost", opus.Cost, 3.347)
 
 	// --- Haiku 4.5 model bucket ---
 	// Final values after dedup:
@@ -81,13 +97,12 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	assertInt(t, "haiku.CacheWrite5m", haiku.CacheWrite5m, 4500)
 	assertInt(t, "haiku.CacheWrite1h", haiku.CacheWrite1h, 2000)
 
-	// Haiku cost per request (pricing: Input=$1/M, Output=$5/M,
-	//   CacheWrite5m=$1.25/M, CacheWrite1h=$2/M, CacheRead=$0.10/M):
-	//   req_sub_001: 0.005 + 0.006 + 0.00375 + 0      + 0.0012 = 0.01595
-	//   req_sub_002: 0.008 + 0.014 + 0       + 0.004  + 0.0015 = 0.0275
-	//   req_sub_003: 0.006 + 0.0045+ 0.001875+ 0      + 0.0018 = 0.014175
-	//   Total: 0.057625
-	assertCost(t, "haiku.Cost", haiku.Cost, 0.057625)
+	// Haiku rates: input $1/M, output $10/M, cache read/5m/1h derived at 0.1/1.25/2.0:
+	//   req_sub_001: 0.005 + 0.012 + 0.0012 + 0.00375 + 0     = 0.02195
+	//   req_sub_002: 0.008 + 0.028 + 0.0015 + 0       + 0.004 = 0.0415
+	//   req_sub_003: 0.006 + 0.009 + 0.0018 + 0.001875+ 0     = 0.018675
+	//   Total: 0.082125
+	assertCost(t, "haiku.Cost", haiku.Cost, 0.082125)
 
 	// --- No other models should exist ---
 	assertInt(t, "len(ModelUsage)", len(data.ModelUsage), 2)
@@ -102,8 +117,8 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	if day18opus := day18["claude-opus-4-6"]; day18opus != nil {
 		assertInt(t, "day18.opus.Requests", day18opus.Requests, 2)
 		assertInt(t, "day18.opus.InputTokens", day18opus.InputTokens, 37000)
-		// req_main_001 (0.2425) + req_main_002 (0.311)
-		assertCost(t, "day18.opus.Cost", day18opus.Cost, 0.5535)
+		// req_main_001 (0.61) + req_main_002 (0.862)
+		assertCost(t, "day18.opus.Cost", day18opus.Cost, 1.472)
 	} else {
 		t.Error("missing opus bucket for 2026-02-18")
 	}
@@ -115,14 +130,14 @@ func TestFixture_RealisticConversation(t *testing.T) {
 	}
 	if day19opus := day19["claude-opus-4-6"]; day19opus != nil {
 		assertInt(t, "day19.opus.Requests", day19opus.Requests, 2)
-		// req_main_003 (0.3525) + req_main_004 (0.3425)
-		assertCost(t, "day19.opus.Cost", day19opus.Cost, 0.695)
+		// req_main_003 (1.015) + req_main_004 (0.86)
+		assertCost(t, "day19.opus.Cost", day19opus.Cost, 1.875)
 	} else {
 		t.Error("missing opus bucket for 2026-02-19")
 	}
 	if day19haiku := day19["claude-haiku-4-5-20251001"]; day19haiku != nil {
 		assertInt(t, "day19.haiku.Requests", day19haiku.Requests, 3)
-		assertCost(t, "day19.haiku.Cost", day19haiku.Cost, 0.057625)
+		assertCost(t, "day19.haiku.Cost", day19haiku.Cost, 0.082125)
 	} else {
 		t.Error("missing haiku bucket for 2026-02-19")
 	}
@@ -134,8 +149,8 @@ func TestFixture_RealisticConversation(t *testing.T) {
 		t.Fatal("missing project bucket")
 	}
 	assertInt(t, "len(project models)", len(proj), 2)
-	assertCost(t, "project.opus.Cost", proj["claude-opus-4-6"].Cost, 1.2485)
-	assertCost(t, "project.haiku.Cost", proj["claude-haiku-4-5-20251001"].Cost, 0.057625)
+	assertCost(t, "project.opus.Cost", proj["claude-opus-4-6"].Cost, 3.347)
+	assertCost(t, "project.haiku.Cost", proj["claude-haiku-4-5-20251001"].Cost, 0.082125)
 
 	// --- Branch aggregation ---
 	// All fixture entries have gitBranch:"main"
@@ -148,8 +163,8 @@ func TestFixture_RealisticConversation(t *testing.T) {
 		t.Fatal("missing 'main' branch bucket")
 	}
 	assertInt(t, "len(main branch models)", len(mainBranch), 2)
-	assertCost(t, "branch.main.opus.Cost", mainBranch["claude-opus-4-6"].Cost, 1.2485)
-	assertCost(t, "branch.main.haiku.Cost", mainBranch["claude-haiku-4-5-20251001"].Cost, 0.057625)
+	assertCost(t, "branch.main.opus.Cost", mainBranch["claude-opus-4-6"].Cost, 3.347)
+	assertCost(t, "branch.main.haiku.Cost", mainBranch["claude-haiku-4-5-20251001"].Cost, 0.082125)
 }
 
 func TestFixture_SyntheticEntriesSkipped(t *testing.T) {

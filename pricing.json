@@ -2,6 +2,7 @@
   "models": {
     "claude-fable-5":    { "input": 10.00, "output": 50.00, "cache_read": 1.00,  "cache_write_5m": 12.50,  "cache_write_1h": 20.00 },
     "claude-mythos-5":   { "input": 10.00, "output": 50.00, "cache_read": 1.00,  "cache_write_5m": 12.50,  "cache_write_1h": 20.00 },
+    "claude-opus-5":     { "input": 5.00,  "output": 25.00, "cache_read": 0.50,  "cache_write_5m": 6.25,   "cache_write_1h": 10.00 },
     "claude-opus-4-8":   { "input": 5.00,  "output": 25.00, "cache_read": 0.50,  "cache_write_5m": 6.25,   "cache_write_1h": 10.00 },
     "claude-opus-4-7":   { "input": 5.00,  "output": 25.00, "cache_read": 0.50,  "cache_write_5m": 6.25,   "cache_write_1h": 10.00 },
     "claude-opus-4-6":   { "input": 5.00,  "output": 25.00, "cache_read": 0.50,  "cache_write_5m": 6.25,   "cache_write_1h": 10.00 },
@@ -21,6 +22,7 @@
     "claude-haiku-3":    { "input": 0.25,  "output": 1.25,  "cache_read": 0.025, "cache_write_5m": 0.3125, "cache_write_1h": 0.50 }
   },
   "fast_models": {
+    "claude-opus-5":   { "input": 10.00, "output": 50.00,  "cache_read": 1.00, "cache_write_5m": 12.50, "cache_write_1h": 20.00 },
     "claude-opus-4-8": { "input": 10.00, "output": 50.00,  "cache_read": 1.00, "cache_write_5m": 12.50, "cache_write_1h": 20.00 },
     "claude-opus-4-7": { "input": 30.00, "output": 150.00, "cache_read": 3.00, "cache_write_5m": 37.50, "cache_write_1h": 60.00 },
     "claude-opus-4-6": { "input": 30.00, "output": 150.00, "cache_read": 3.00, "cache_write_5m": 37.50, "cache_write_1h": 60.00 }
@@ -28,6 +30,7 @@
   "families": [
     { "prefix": "claude-fable-5",    "model": "claude-fable-5" },
     { "prefix": "claude-mythos-5",   "model": "claude-mythos-5" },
+    { "prefix": "claude-opus-5",     "model": "claude-opus-5" },
     { "prefix": "claude-opus-4-8",   "model": "claude-opus-4-8" },
     { "prefix": "claude-opus-4-7",   "model": "claude-opus-4-7" },
     { "prefix": "claude-opus-4-6",   "model": "claude-opus-4-6" },
@@ -48,11 +51,9 @@
   "display_names": [
     { "prefix": "fable-5",      "name": "Fable 5" },
     { "prefix": "mythos-5",     "name": "Mythos 5" },
-    { "prefix": "opus-4-8:fast", "name": "Opus 4.8 ⚡" },
+    { "prefix": "opus-5",       "name": "Opus 5" },
     { "prefix": "opus-4-8",     "name": "Opus 4.8" },
-    { "prefix": "opus-4-7:fast", "name": "Opus 4.7 ⚡" },
     { "prefix": "opus-4-7",     "name": "Opus 4.7" },
-    { "prefix": "opus-4-6:fast", "name": "Opus 4.6 ⚡" },
     { "prefix": "opus-4-6",     "name": "Opus 4.6" },
     { "prefix": "opus-4-5",   "name": "Opus 4.5" },
     { "prefix": "opus-4-1",   "name": "Opus 4.1" },
