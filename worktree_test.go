@@ -6,26 +6,34 @@ import (
 	"testing"
 )
 
+// linkWorktree wires a worktree root to its admin directory the way
+// `git worktree add` does: a .git file at the root naming target, and the
+// "gitdir" backlink git keeps inside the admin directory pointing back at it.
+func linkWorktree(t *testing.T, root, adminDir, target string) {
+	t.Helper()
+	if err := os.MkdirAll(adminDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitFile := filepath.Join(root, ".git")
+	if err := os.WriteFile(gitFile, []byte("gitdir: "+target+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(adminDir, "gitdir"), []byte(gitFile+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // newWorktree builds a linked worktree named name under a temp dir and returns
 // its root — the same layout `git worktree add` produces.
 func newWorktree(t *testing.T, name string) string {
 	t.Helper()
 	base := t.TempDir()
-
-	repo := filepath.Join(base, "repo")
-	gitDir := filepath.Join(repo, ".git")
-	if err := os.MkdirAll(filepath.Join(gitDir, "worktrees", name), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
+	adminDir := filepath.Join(base, "repo", ".git", "worktrees", name)
 	root := filepath.Join(base, name)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitFile := "gitdir: " + filepath.Join(gitDir, "worktrees", name) + "\n"
-	if err := os.WriteFile(filepath.Join(root, ".git"), []byte(gitFile), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	linkWorktree(t, root, adminDir, adminDir)
 	return root
 }
 
@@ -71,19 +79,52 @@ func TestDetectWorktree_MainCheckout(t *testing.T) {
 // not stop at the parent repo — the layout Claude Code's .claude/worktrees uses.
 func TestDetectWorktree_NestedInsideMainCheckout(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git", "worktrees", "perf"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	adminDir := filepath.Join(repo, ".git", "worktrees", "perf")
 	root := filepath.Join(repo, ".claude", "worktrees", "perf")
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	linkWorktree(t, root, adminDir, adminDir)
+
+	// Start below the worktree root, so the walk has to stop at the worktree's
+	// .git file rather than continue to the enclosing checkout's .git directory.
+	nested := filepath.Join(root, "internal", "cache")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitFile := "gitdir: " + filepath.Join(repo, ".git", "worktrees", "perf") + "\n"
-	if err := os.WriteFile(filepath.Join(root, ".git"), []byte(gitFile), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := detectWorktree(root); got != "perf" {
+	if got := detectWorktree(nested); got != "perf" {
 		t.Errorf("got %q, want perf", got)
+	}
+}
+
+// A worktree of a bare repo has no ".git" element in its target at all — the
+// admin directory sits directly under the bare repo.
+func TestDetectWorktree_BareRepoParent(t *testing.T) {
+	base := t.TempDir()
+	adminDir := filepath.Join(base, "repo.git", "worktrees", "release")
+	root := filepath.Join(base, "release")
+	linkWorktree(t, root, adminDir, adminDir)
+	if got := detectWorktree(root); got != "release" {
+		t.Errorf("got %q, want release", got)
+	}
+}
+
+// A target that merely happens to sit under a directory named "worktrees" is
+// not a worktree — git's backlink is absent.
+func TestDetectWorktree_WorktreesLookalike(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "worktrees", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, "project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: ../worktrees/foo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := detectWorktree(dir); got != "" {
+		t.Errorf("got %q, want empty for a lookalike target", got)
 	}
 }
 
@@ -95,9 +136,12 @@ func TestDetectWorktree_Submodule(t *testing.T) {
 }
 
 func TestDetectWorktree_RelativeGitdir(t *testing.T) {
-	dir := newGitFileDir(t, "gitdir: ../repo/.git/worktrees/rel\n")
-	if got := detectWorktree(dir); got != filepath.Base(dir) {
-		t.Errorf("got %q, want %q", got, filepath.Base(dir))
+	base := t.TempDir()
+	adminDir := filepath.Join(base, "repo", ".git", "worktrees", "rel")
+	root := filepath.Join(base, "rel")
+	linkWorktree(t, root, adminDir, "../repo/.git/worktrees/rel")
+	if got := detectWorktree(root); got != "rel" {
+		t.Errorf("got %q, want rel", got)
 	}
 }
 

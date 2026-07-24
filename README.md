@@ -141,16 +141,10 @@ Available segments:
 | `lines` | `📝 +N -N` | both zero | emoji |
 | `duration` | `⏱️ Xm` | zero | emoji |
 | `cwd` | `📁 dirname` | empty | emoji |
-| `worktree` | `🌳 worktree-name` | not in a linked worktree | emoji |
+| `worktree` | `🌳 worktree-name` | not in a linked worktree (submodules don't count) | emoji |
 | `version` | `🏷️ X.Y.Z` | empty | emoji |
 
 **`separator`** — string between segments (default: `" · "`).
-
-**`worktree`** — shows the directory name of the linked [git worktree](https://git-scm.com/docs/git-worktree) the session is running in, and stays hidden in the main checkout, so it only draws attention when you're somewhere other than where you usually are. Submodules are not worktrees and never trigger it. Pair it with `branch` when several worktrees share a repo:
-
-```text
-💸 $1.23 session · 🌿 feature/auth · 🌳 repo-feature-auth
-```
 
 **`segment_options`** — per-segment overrides. `emoji` replaces the default icon (for `5h`/`7d`, replaces the dynamic 🔋/🪫). `label` replaces trailing text (only on segments marked above).
 

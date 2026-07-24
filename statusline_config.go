@@ -272,8 +272,6 @@ func renderBranch(ctx *StatuslineContext) string {
 	return fmt.Sprintf("%s %s", emoji, ctx.Branch)
 }
 
-// statuslineCwd returns the session's working directory, preferring the explicit
-// cwd and falling back to the workspace directory.
 func statuslineCwd(ctx *StatuslineContext) string {
 	if ctx.Input.Cwd != "" {
 		return ctx.Input.Cwd

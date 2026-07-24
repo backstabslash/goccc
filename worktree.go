@@ -23,13 +23,13 @@ func detectWorktree(dir string) string {
 		info, err := os.Stat(gitPath)
 		switch {
 		case err != nil:
-			// No marker at this level — keep walking up.
+			// No marker here — keep walking up.
 		case info.IsDir():
-			return "" // main checkout
+			return ""
 		case pointsAtWorktree(gitPath):
 			return filepath.Base(dir)
 		default:
-			return "" // submodule, or a .git file we don't recognize
+			return ""
 		}
 
 		parent := filepath.Dir(dir)
@@ -43,7 +43,13 @@ func detectWorktree(dir string) string {
 
 // pointsAtWorktree reports whether a .git file's gitdir target names a linked
 // worktree ("…/worktrees/<name>") rather than a submodule ("…/modules/<name>").
-// The target may be absolute or relative, so only its last two elements matter.
+//
+// The path shape alone isn't proof — any directory could sit under something
+// called "worktrees" — so the target is confirmed by the "gitdir" backlink git
+// writes inside every linked worktree's admin directory and inside no
+// submodule's. Checking the backlink rather than the grandparent's name keeps
+// worktrees of a bare repo working, where the target is "<repo>.git/worktrees/
+// <name>" and there is no ".git" element at all.
 func pointsAtWorktree(gitFile string) bool {
 	data, err := os.ReadFile(gitFile)
 	if err != nil {
@@ -53,6 +59,16 @@ func pointsAtWorktree(gitFile string) bool {
 	if !ok {
 		return false
 	}
-	parts := strings.Split(filepath.ToSlash(strings.TrimSpace(target)), "/")
-	return len(parts) >= 2 && parts[len(parts)-2] == "worktrees"
+	target = strings.TrimSpace(target)
+	parts := strings.Split(filepath.ToSlash(target), "/")
+	if len(parts) < 2 || parts[len(parts)-2] != "worktrees" {
+		return false
+	}
+
+	// A relative target resolves against the directory holding the .git file.
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(gitFile), target)
+	}
+	info, err := os.Stat(filepath.Join(target, "gitdir"))
+	return err == nil && !info.IsDir()
 }
