@@ -141,6 +141,7 @@ Available segments:
 | `lines` | `📝 +N -N` | both zero | emoji |
 | `duration` | `⏱️ Xm` | zero | emoji |
 | `cwd` | `📁 dirname` | empty | emoji |
+| `worktree` | `🌳 worktree-name` | not in a linked worktree (submodules don't count) | emoji |
 | `version` | `🏷️ X.Y.Z` | empty | emoji |
 
 **`separator`** — string between segments (default: `" · "`).
