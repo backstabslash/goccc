@@ -317,6 +317,45 @@ func TestScheduleResolution(t *testing.T) {
 	}
 }
 
+// A fast tier carries its own schedule — how a withdrawn fast mode drops back to
+// standard rates on a date without losing the premium on earlier logs.
+func TestScheduleOnFastTier(t *testing.T) {
+	applyTestPricing(t, `{
+		"models": {
+			"claude-sched-1": { "input": 5.00, "output": 25.00 }
+		},
+		"fast_models": {
+			"claude-sched-1": {
+				"input": 30.00, "output": 150.00,
+				"schedule": [ { "from": "2026-06-29", "input": 5.00, "output": 25.00 } ]
+			}
+		},
+		"families": [ { "prefix": "claude-sched-1", "model": "claude-sched-1" } ],
+		"default_model": "claude-sched-1",
+		"display_names": [ { "prefix": "sched-1", "name": "Sched 1" } ]
+	}`)
+	tests := []struct {
+		name         string
+		ts           time.Time
+		input, cache float64
+	}{
+		{"premium before withdrawal", time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), 30, 3},
+		{"standard at the withdrawal date", time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC), 5, 0.5},
+		{"standard after withdrawal", time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC), 5, 0.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := resolvePricing("claude-sched-1:fast", tt.ts)
+			if p.Input != tt.input {
+				t.Errorf("input = %g, want %g", p.Input, tt.input)
+			}
+			if p.CacheRead != tt.cache {
+				t.Errorf("cache_read = %g, want %g", p.CacheRead, tt.cache)
+			}
+		})
+	}
+}
+
 // The boundary is an absolute UTC instant, not a local calendar day.
 func TestScheduleBoundaryIsUTC(t *testing.T) {
 	applyTestPricing(t, schedulePricingJSON)
@@ -519,6 +558,9 @@ func TestPricingDataTiers(t *testing.T) {
 	}
 	for model, fast := range fastPricingTable {
 		checkPriceTiers(t, model+":fast", fast.PriceFields)
+		for _, c := range fast.Schedule {
+			checkPriceTiers(t, model+":fast schedule from="+c.From, c.PriceFields)
+		}
 	}
 }
 
