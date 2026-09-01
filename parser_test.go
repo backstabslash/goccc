@@ -152,6 +152,22 @@ func TestDeduplicate_StreamingUpdates(t *testing.T) {
 	}
 }
 
+func TestIterationsRaiseTopLevelUsage(t *testing.T) {
+	line := fmt.Sprintf(`{"type":"assistant","requestId":"req_it","timestamp":%q,"message":{"model":"claude-opus-4-6","role":"assistant","usage":{"input_tokens":5,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"iterations":[{"type":"message","input_tokens":10,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},{"type":"message","input_tokens":5,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}]}}}`, ts(0, 10))
+	base := setupProject(t, "test-project", []string{line})
+	data, err := parseLogs(base, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := data.ModelUsage["claude-opus-4-6"]
+	if b == nil {
+		t.Fatal("expected opus bucket")
+	}
+	if b.InputTokens != 15 || b.OutputTokens != 150 {
+		t.Errorf("got input=%d output=%d, want 15/150 (sum of iterations)", b.InputTokens, b.OutputTokens)
+	}
+}
+
 func TestDeduplicate_DifferentRequests(t *testing.T) {
 	lines := []string{
 		makeRecord("req_001", "claude-opus-4-6", ts(0, 10), 100, 50, 0, 0, 0),

@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +101,8 @@ func TestInitPricingUsesCachedFile(t *testing.T) {
 			{ "prefix": "test-model", "name": "Test Model" }
 		],
 		"long_context_threshold": 100000,
-		"web_search_cost": 0.05
+		"web_search_cost": 0.05,
+		"inference_geo_multipliers": { "us": 1.5 }
 	}`
 
 	cacheFile := filepath.Join(t.TempDir(), "pricing.json")
@@ -123,6 +125,7 @@ func TestInitPricingUsesCachedFile(t *testing.T) {
 	assertCost(t, "derived cache_write_1h", p.CacheWrite1h, 198.0)
 	assertInt(t, "longCtxThreshold", longCtxThreshold, 100000)
 	assertCost(t, "webSearchCostPerSearch", webSearchCostPerSearch, 0.05)
+	assertCost(t, "inferenceGeoMultipliers[us]", inferenceGeoMultipliers["us"], 1.5)
 	if name := shortModel("claude-test-model"); name != "Test Model" {
 		t.Errorf("shortModel = %q, want %q", name, "Test Model")
 	}
@@ -254,6 +257,19 @@ func TestCalcCost(t *testing.T) {
 			usage:    Usage{InputTokens: 100_000, OutputTokens: 10_000, ServerToolUse: &ServerToolUse{WebSearchRequests: 5}},
 			cost:     2.05,
 			searches: 5,
+		},
+		{
+			name:     "us inference geo multiplies tokens but not searches",
+			model:    "claude-alpha-9",
+			usage:    Usage{InputTokens: 100_000, OutputTokens: 100_000, InferenceGeo: "us", ServerToolUse: &ServerToolUse{WebSearchRequests: 5}},
+			cost:     12.15,
+			searches: 5,
+		},
+		{
+			name:  "other inference geo is standard",
+			model: "claude-alpha-9",
+			usage: Usage{InputTokens: 100_000, OutputTokens: 100_000, InferenceGeo: "not_available"},
+			cost:  11,
 		},
 		{
 			name:  "fast tier",
@@ -491,6 +507,59 @@ func TestScheduleEndToEndByTimestamp(t *testing.T) {
 	assertCost(t, "per-timestamp end-to-end cost", m.Cost, 55.0)
 }
 
+func TestFoldIterations(t *testing.T) {
+	iters := []Usage{
+		{InputTokens: 10, OutputTokens: 100, CacheReadInputTokens: 1000, CacheCreationInputTokens: 60, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 20, Ephemeral1hInputTokens: 40}},
+		{InputTokens: 5, OutputTokens: 50, CacheReadInputTokens: 500, CacheCreationInputTokens: 30, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 10, Ephemeral1hInputTokens: 20}},
+	}
+	tests := []struct {
+		name string
+		in   Usage
+		want Usage
+	}{
+		{
+			name: "no iterations is unchanged",
+			in:   Usage{InputTokens: 1, OutputTokens: 2},
+			want: Usage{InputTokens: 1, OutputTokens: 2},
+		},
+		{
+			name: "top level equal to the sum is unchanged",
+			in:   Usage{InputTokens: 15, OutputTokens: 150, CacheReadInputTokens: 1500, CacheCreationInputTokens: 90, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 30, Ephemeral1hInputTokens: 60}, Iterations: iters},
+			want: Usage{InputTokens: 15, OutputTokens: 150, CacheReadInputTokens: 1500, CacheCreationInputTokens: 90, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 30, Ephemeral1hInputTokens: 60}},
+		},
+		{
+			name: "top level reporting only the last iteration is raised to the sum",
+			in:   Usage{InputTokens: 5, OutputTokens: 50, CacheReadInputTokens: 500, CacheCreationInputTokens: 30, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 10, Ephemeral1hInputTokens: 20}, Iterations: iters},
+			want: Usage{InputTokens: 15, OutputTokens: 150, CacheReadInputTokens: 1500, CacheCreationInputTokens: 90, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 30, Ephemeral1hInputTokens: 60}},
+		},
+		{
+			name: "top level above the sum is kept",
+			in:   Usage{InputTokens: 20, OutputTokens: 200, CacheReadInputTokens: 2000, CacheCreationInputTokens: 100, Iterations: iters},
+			want: Usage{InputTokens: 20, OutputTokens: 200, CacheReadInputTokens: 2000, CacheCreationInputTokens: 100},
+		},
+		{
+			name: "iterations carrying only the cache breakdown still raise the cache write",
+			in: Usage{CacheCreationInputTokens: 30, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 10, Ephemeral1hInputTokens: 20}, Iterations: []Usage{
+				{CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 20, Ephemeral1hInputTokens: 40}},
+				{CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 10, Ephemeral1hInputTokens: 20}},
+			}},
+			want: Usage{CacheCreationInputTokens: 90, CacheCreation: &CacheCreation{Ephemeral5mInputTokens: 30, Ephemeral1hInputTokens: 60}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.in.foldIterations()
+			if got.Iterations != nil {
+				t.Errorf("iterations not cleared")
+			}
+			got.Iterations = nil
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %+v (cache %+v), want %+v (cache %+v)", got, got.CacheCreation, tt.want, tt.want.CacheCreation)
+			}
+		})
+	}
+}
+
 func TestShortModel(t *testing.T) {
 	applyTestPricing(t, testPricingJSON)
 	tests := []struct{ model, want string }{
@@ -500,6 +569,8 @@ func TestShortModel(t *testing.T) {
 		{"claude-alpha-9:fast", "Alpha 9 ⚡"},
 		{"claude-alpha-9-20260101:fast", "Alpha 9 ⚡"},
 		{"claude-beta-1", "Beta 1"},
+		{"claude-alpha-9[1m]", "Alpha 9"},
+		{"claude-alpha-9-20260101[1m]", "Alpha 9"},
 		{"unknown-model", "unknown-model"},
 	}
 	for _, tt := range tests {
@@ -526,7 +597,10 @@ func checkPriceTiers(t *testing.T, label string, p PriceFields) {
 		t.Errorf("%s: input/output must be positive, got %g/%g", label, p.Input, p.Output)
 		return
 	}
-	check("cache_read", p.CacheRead, p.Input*0.1)
+	// Fable 5.1 and Mythos 5.1 read cache at 0.025x; everything else at 0.1x.
+	if math.Abs(p.CacheRead-p.Input*0.025) > 1e-9 {
+		check("cache_read", p.CacheRead, p.Input*0.1)
+	}
 	check("cache_write_5m", p.CacheWrite5m, p.Input*1.25)
 	check("cache_write_1h", p.CacheWrite1h, p.Input*2)
 	if p.LongCtxInput == 0 {

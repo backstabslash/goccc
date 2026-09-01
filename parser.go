@@ -152,7 +152,7 @@ func parseFile(path string, cutoff time.Time, hasCutoff bool, projectSlug string
 		captureCwd(projectPaths, projectSlug, rec.Cwd)
 
 		rawCount++
-		usage := *rec.Message.Usage
+		usage := rec.Message.Usage.foldIterations()
 
 		branch := rec.GitBranch
 		if branch == "" {

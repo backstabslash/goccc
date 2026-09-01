@@ -40,13 +40,14 @@ type PriceChange struct {
 var embeddedPricingJSON []byte
 
 type PricingData struct {
-	Models               map[string]ModelPricing `json:"models"`
-	FastModels           map[string]ModelPricing `json:"fast_models,omitempty"`
-	Families             []PricingFamily         `json:"families"`
-	DefaultModel         string                  `json:"default_model"`
-	DisplayNames         []PricingDisplayName    `json:"display_names"`
-	LongContextThreshold int                     `json:"long_context_threshold,omitempty"`
-	WebSearchCost        float64                 `json:"web_search_cost,omitempty"`
+	Models                  map[string]ModelPricing `json:"models"`
+	FastModels              map[string]ModelPricing `json:"fast_models,omitempty"`
+	Families                []PricingFamily         `json:"families"`
+	DefaultModel            string                  `json:"default_model"`
+	DisplayNames            []PricingDisplayName    `json:"display_names"`
+	LongContextThreshold    int                     `json:"long_context_threshold,omitempty"`
+	WebSearchCost           float64                 `json:"web_search_cost,omitempty"`
+	InferenceGeoMultipliers map[string]float64      `json:"inference_geo_multipliers,omitempty"`
 }
 
 type PricingFamily struct {
@@ -60,13 +61,14 @@ type PricingDisplayName struct {
 }
 
 var (
-	pricingTable           map[string]ModelPricing
-	fastPricingTable       map[string]ModelPricing
-	familyPrefixes         []PricingFamily
-	defaultPricing         ModelPricing
-	displayNames           []PricingDisplayName
-	longCtxThreshold       = 200_000
-	webSearchCostPerSearch = 0.01
+	pricingTable            map[string]ModelPricing
+	fastPricingTable        map[string]ModelPricing
+	familyPrefixes          []PricingFamily
+	defaultPricing          ModelPricing
+	displayNames            []PricingDisplayName
+	longCtxThreshold        = 200_000
+	webSearchCostPerSearch  = 0.01
+	inferenceGeoMultipliers = map[string]float64{"us": 1.1}
 )
 
 var pricingCachePath = func() string {
@@ -174,6 +176,9 @@ func applyPricing(pd *PricingData) {
 	}
 	if pd.WebSearchCost > 0 {
 		webSearchCostPerSearch = pd.WebSearchCost
+	}
+	if pd.InferenceGeoMultipliers != nil {
+		inferenceGeoMultipliers = pd.InferenceGeoMultipliers
 	}
 }
 
@@ -323,6 +328,43 @@ type Usage struct {
 	CacheCreation            *CacheCreation `json:"cache_creation,omitempty"`
 	ServerToolUse            *ServerToolUse `json:"server_tool_use,omitempty"`
 	Speed                    string         `json:"speed,omitempty"`
+	InferenceGeo             string         `json:"inference_geo,omitempty"`
+	Iterations               []Usage        `json:"iterations,omitempty"`
+}
+
+// foldIterations raises each counter to its sum across usage.iterations. Logs
+// so far carry one iteration equal to the top level; this guards against a
+// top level that only reflects the last pass of a multi-iteration request.
+func (u Usage) foldIterations() Usage {
+	if len(u.Iterations) == 0 {
+		return u
+	}
+	var sum Usage
+	var cc CacheCreation
+	for _, it := range u.Iterations {
+		sum.InputTokens += it.InputTokens
+		sum.OutputTokens += it.OutputTokens
+		sum.CacheReadInputTokens += it.CacheReadInputTokens
+		flat := it.CacheCreationInputTokens
+		if it.CacheCreation != nil {
+			cc.Ephemeral5mInputTokens += it.CacheCreation.Ephemeral5mInputTokens
+			cc.Ephemeral1hInputTokens += it.CacheCreation.Ephemeral1hInputTokens
+			flat = max(flat, it.CacheCreation.Ephemeral5mInputTokens+it.CacheCreation.Ephemeral1hInputTokens)
+		}
+		sum.CacheCreationInputTokens += flat
+	}
+	u.InputTokens = max(u.InputTokens, sum.InputTokens)
+	u.OutputTokens = max(u.OutputTokens, sum.OutputTokens)
+	u.CacheReadInputTokens = max(u.CacheReadInputTokens, sum.CacheReadInputTokens)
+	if sum.CacheCreationInputTokens > u.CacheCreationInputTokens {
+		u.CacheCreationInputTokens = sum.CacheCreationInputTokens
+		u.CacheCreation = nil
+		if cc != (CacheCreation{}) {
+			u.CacheCreation = &cc
+		}
+	}
+	u.Iterations = nil
+	return u
 }
 
 func (u Usage) TotalInputTokens() int {
@@ -376,6 +418,10 @@ func calcCostResult(model string, usage Usage, ts time.Time) CostResult {
 			(float64(usage.CacheReadInputTokens)/mtok)*p.CacheRead
 	}
 
+	if m, ok := inferenceGeoMultipliers[usage.InferenceGeo]; ok {
+		tokenCost *= m
+	}
+
 	ws := usage.WebSearches()
 	return CostResult{
 		Cost:        tokenCost + float64(ws)*webSearchCostPerSearch,
@@ -392,14 +438,18 @@ const fastMarker = " ⚡"
 
 func shortModel(model string) string {
 	base, isFast := strings.CutSuffix(model, ":fast")
+	// Claude Code's statusline reports 1M-context aliases as "claude-opus-5[1m]"; drop it.
+	base, _, _ = strings.Cut(base, "[")
 	m := strings.TrimPrefix(strings.ToLower(base), "claude-")
 	for _, dn := range displayNames {
-		if hasModelPrefix(m, dn.Prefix) {
-			if isFast {
-				return dn.Name + fastMarker
-			}
-			return dn.Name
+		if !hasModelPrefix(m, dn.Prefix) {
+			continue
 		}
+		name := dn.Name
+		if isFast {
+			name += fastMarker
+		}
+		return name
 	}
 	return model
 }
