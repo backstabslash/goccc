@@ -597,8 +597,8 @@ func checkPriceTiers(t *testing.T, label string, p PriceFields) {
 		t.Errorf("%s: input/output must be positive, got %g/%g", label, p.Input, p.Output)
 		return
 	}
-	// Fable 5.1 and Mythos 5.1 read cache at 0.025x; everything else at 0.1x.
-	if math.Abs(p.CacheRead-p.Input*0.025) > 1e-9 {
+	// Fable 5.1 and Mythos 5.1 read cache at 0.025x, Opus 5.5 at 0.05x; everything else at 0.1x.
+	if math.Abs(p.CacheRead-p.Input*0.025) > 1e-9 && math.Abs(p.CacheRead-p.Input*0.05) > 1e-9 {
 		check("cache_read", p.CacheRead, p.Input*0.1)
 	}
 	check("cache_write_5m", p.CacheWrite5m, p.Input*1.25)
