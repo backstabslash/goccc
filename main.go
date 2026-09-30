@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -55,6 +56,8 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version")
 	statusline := flag.Bool("statusline", false, "Statusline mode: read session JSON from stdin, output formatted cost line")
 	sessionEnd := flag.Bool("session-end", false, "Session end hook mode: read SessionEnd JSON from stdin, print cost summary")
+	petState := flag.String("pet-state", "", "Hook mode: record the statusline pet state (working, done, idle) for the session on stdin")
+	refreshPricing := flag.Bool("refresh-pricing", false, "Fetch the latest pricing.json into the cache (goccc runs this in the background)")
 	tools := flag.Bool("tools", false, "Show tool and skill usage analytics")
 	currencySymbolFlag := flag.String("currency-symbol", "", "Override currency symbol (requires -currency-rate)")
 	currencyRateFlag := flag.Float64("currency-rate", 0, "Override exchange rate from USD (requires -currency-symbol)")
@@ -90,6 +93,10 @@ func main() {
 		os.Exit(0)
 	}
 
+	if runBackgroundMode(*petState, *refreshPricing) {
+		return
+	}
+
 	if *noColor {
 		noColorFlag = true
 	}
@@ -105,13 +112,7 @@ func main() {
 
 	initPricing()
 
-	if *statusline {
-		runStatusline(*baseDir)
-		return
-	}
-
-	if *sessionEnd {
-		runSessionEnd(*baseDir)
+	if runClaudeCodeMode(*statusline, *sessionEnd, *baseDir) {
 		return
 	}
 
@@ -160,4 +161,31 @@ func main() {
 	}
 
 	printUpdateNotice(<-updateCh)
+}
+
+// runClaudeCodeMode runs the statusline or session-end integration and reports whether one ran.
+func runClaudeCodeMode(statusline, sessionEnd bool, baseDir string) bool {
+	switch {
+	case statusline:
+		runStatusline(baseDir)
+	case sessionEnd:
+		runSessionEnd(baseDir)
+	default:
+		return false
+	}
+	return true
+}
+
+// runBackgroundMode runs the pet-state hook or the detached pricing fetch, which
+// skip config and pricing setup, and reports whether one ran.
+func runBackgroundMode(petState string, refreshPricing bool) bool {
+	switch {
+	case petState != "":
+		runPetState(petState)
+	case refreshPricing:
+		fetchAndCachePricing(pricingCachePath(), &http.Client{Timeout: pricingFetchTimeout})
+	default:
+		return false
+	}
+	return true
 }

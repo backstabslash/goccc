@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -41,6 +42,7 @@ type StatuslineInput struct {
 	} `json:"cost"`
 	ContextWindow struct {
 		UsedPercentage    float64 `json:"used_percentage"`
+		ContextWindowSize int     `json:"context_window_size"`
 		TotalInputTokens  int     `json:"total_input_tokens"`
 		TotalOutputTokens int     `json:"total_output_tokens"`
 	} `json:"context_window"`
@@ -48,6 +50,7 @@ type StatuslineInput struct {
 		FiveHour *rateLimitWindow `json:"five_hour"`
 		SevenDay *rateLimitWindow `json:"seven_day"`
 	} `json:"rate_limits"`
+	SessionID      string `json:"session_id"`
 	TranscriptPath string `json:"transcript_path"`
 	Cwd            string `json:"cwd"`
 	Version        string `json:"version"`
@@ -124,6 +127,15 @@ func formatStatuslineWithConfig(sCost, tCost float64, input *StatuslineInput, mc
 		MCPNames:    mcpNames,
 		Branch:      branch,
 		Options:     opts,
+		Style:       statuslineStyle(cfg),
+	}
+	if cfg != nil {
+		ctx.Pet = resolvePet(cfg.Pet)
+	} else {
+		ctx.Pet = defaultPet
+	}
+	if ctx.Style == stylePowerline {
+		return assemblePowerline(segments, ctx, resolvePowerlineTheme(cfg.Powerline))
 	}
 	return assembleStatusline(segments, sep, ctx)
 }
@@ -135,41 +147,16 @@ func runStatusline(baseDir string) {
 		os.Exit(1)
 	}
 
-	cfgPath := configPath()
-	cfg := loadCurrencyConfig(cfgPath)
+	segments, _, _ := resolveStatuslineConfig(statuslineConfig)
 
-	segments, _, _ := resolveStatuslineConfig(cfg.Statusline)
-
-	var sCost float64
-	var branch string
-	if input.TranscriptPath != "" {
-		deduped, err := parseSession(input.TranscriptPath)
-		if err == nil {
-			sCost = sessionCost(deduped)
-			branch = sessionBranch(deduped)
-		} else {
-			sCost = input.Cost.TotalCostUSD
-		}
-	} else {
-		sCost = input.Cost.TotalCostUSD
-	}
-
-	var tCost float64
-	if hasSegment(segments, "today_cost") {
-		if todayData, err := parseLogs(baseDir, 1, ""); err == nil {
-			tCost = todayData.Totals().Cost
-		}
-	}
+	costs := statuslineCosts(input, segments, baseDir)
 
 	var mcpNames []string
 	if hasSegment(segments, "mcp") {
 		mcpNames = detectMCPs(baseDir, input.TranscriptPath)
 	}
 
-	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, cfg.Statusline))
-
-	// Output is flushed; let the background refresh land before exit.
-	waitForPricingRefresh(pricingRefreshWait)
+	fmt.Print(formatStatuslineWithConfig(costs.SessionCost, costs.TodayCost, input, mcpNames, costs.Branch, statuslineConfig))
 }
 
 func hasSegment(segments []string, name string) bool {
@@ -273,6 +260,7 @@ func runSessionEnd(baseDir string) {
 	if err != nil {
 		return
 	}
+	removeSessionState(input.SessionID)
 
 	if input.TranscriptPath == "" {
 		return
@@ -306,8 +294,84 @@ func runSessionEnd(baseDir string) {
 		defer func() { _ = tty.Close() }()
 	}
 	_, _ = fmt.Fprintf(w, "\x1b[2K\r\n%s\n", line)
-
-	// Let the background refresh land before exit.
-	waitForPricingRefresh(pricingRefreshWait)
 	os.Exit(2)
+}
+
+// With refreshInterval set, the statusline reruns every second or so; reparsing
+// the session and today's logs each time burns CPU for identical numbers.
+const costCacheTTL = 10 * time.Second
+
+type costSnapshot struct {
+	TranscriptSize int64     `json:"transcript_size"`
+	At             time.Time `json:"at"`
+	SessionCost    float64   `json:"session_cost"`
+	TodayCost      float64   `json:"today_cost"`
+	Branch         string    `json:"branch"`
+}
+
+func transcriptSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return -1
+	}
+	return info.Size()
+}
+
+func loadCostSnapshot(sessionID string, size int64, now time.Time) (*costSnapshot, bool) {
+	path := sessionStatePath(sessionID, ".costs.json")
+	if path == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	var s costSnapshot
+	if json.Unmarshal(data, &s) != nil {
+		return nil, false
+	}
+	if s.TranscriptSize != size || now.Sub(s.At) >= costCacheTTL || now.Before(s.At) {
+		return nil, false
+	}
+	return &s, true
+}
+
+func saveCostSnapshot(sessionID string, s *costSnapshot) {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	_, statErr := os.Stat(sessionStatePath(sessionID, ".costs.json"))
+	if writeSessionState(sessionID, ".costs.json", data) == nil && errors.Is(statErr, fs.ErrNotExist) {
+		pruneSessionState(s.At)
+	}
+}
+
+func computeCosts(input *StatuslineInput, segments []string, baseDir string) *costSnapshot {
+	s := &costSnapshot{SessionCost: input.Cost.TotalCostUSD}
+	if input.TranscriptPath != "" {
+		if deduped, err := parseSession(input.TranscriptPath); err == nil {
+			s.SessionCost = sessionCost(deduped)
+			s.Branch = sessionBranch(deduped)
+		}
+	}
+	if hasSegment(segments, "today_cost") {
+		if todayData, err := parseLogs(baseDir, 1, ""); err == nil {
+			s.TodayCost = todayData.Totals().Cost
+		}
+	}
+	return s
+}
+
+func statuslineCosts(input *StatuslineInput, segments []string, baseDir string) *costSnapshot {
+	now := time.Now()
+	size := transcriptSize(input.TranscriptPath)
+	if s, ok := loadCostSnapshot(input.SessionID, size, now); ok {
+		return s
+	}
+	s := computeCosts(input, segments, baseDir)
+	s.TranscriptSize = size
+	s.At = now
+	saveCostSnapshot(input.SessionID, s)
+	return s
 }

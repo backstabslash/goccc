@@ -57,7 +57,13 @@
     { "prefix": "claude-sonnet-3",   "model": "claude-sonnet-3" },
     { "prefix": "claude-haiku-4-5",  "model": "claude-haiku-4-5" },
     { "prefix": "claude-haiku-3-5",  "model": "claude-haiku-3-5" },
-    { "prefix": "claude-haiku-3",    "model": "claude-haiku-3" }
+    { "prefix": "claude-haiku-3",    "model": "claude-haiku-3" },
+    { "prefix": "claude-3-opus",     "model": "claude-opus-3" },
+    { "prefix": "claude-3-7-sonnet", "model": "claude-sonnet-3" },
+    { "prefix": "claude-3-5-sonnet", "model": "claude-sonnet-3" },
+    { "prefix": "claude-3-sonnet",   "model": "claude-sonnet-3" },
+    { "prefix": "claude-3-5-haiku",  "model": "claude-haiku-3-5" },
+    { "prefix": "claude-3-haiku",    "model": "claude-haiku-3" }
   ],
   "default_model": "claude-sonnet-4-6",
   "display_names": [

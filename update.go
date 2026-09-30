@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,11 +14,15 @@ import (
 )
 
 const (
-	updateCheckInterval = 24 * time.Hour
-	updateCheckTimeout  = 2 * time.Second
-	releasesURL         = "https://api.github.com/repos/backstabslash/goccc/releases/latest"
-	pricingURL          = "https://raw.githubusercontent.com/backstabslash/goccc/main/pricing.json"
+	updateCheckInterval    = 24 * time.Hour
+	pricingRefreshInterval = 6 * time.Hour
+	pricingRetryInterval   = 15 * time.Minute
+	pricingFetchTimeout    = 10 * time.Second
+	updateCheckTimeout     = 2 * time.Second
+	releasesURL            = "https://api.github.com/repos/backstabslash/goccc/releases/latest"
 )
+
+var pricingURL = "https://raw.githubusercontent.com/backstabslash/goccc/main/pricing.json"
 
 type updateResult struct {
 	Latest string
@@ -37,15 +42,37 @@ func checkForUpdate(current string) <-chan *updateResult {
 	return ch
 }
 
-func refreshPricingCache(cached string) {
-	if cached == "" {
+// refreshPricingCache starts a background fetch once the cache is older than maxAge.
+// The attempt is stamped first, so a failing or hanging upstream is retried at most
+// once per pricingRetryInterval, and every caller shares that throttle.
+func refreshPricingCache(cached string, maxAge time.Duration) {
+	if cached == "" || modifiedWithin(cached, maxAge) || modifiedWithin(cached+".attempt", pricingRetryInterval) {
 		return
 	}
-	if info, err := os.Stat(cached); err == nil && time.Since(info.ModTime()) < updateCheckInterval {
+	_ = os.MkdirAll(filepath.Dir(cached), 0o755)
+	if os.WriteFile(cached+".attempt", []byte(time.Now().Format(time.RFC3339)), 0o644) != nil {
 		return
 	}
-	client := &http.Client{Timeout: updateCheckTimeout}
-	fetchAndCachePricing(cached, client)
+	_ = startPricingFetch()
+}
+
+func modifiedWithin(path string, d time.Duration) bool {
+	info, err := os.Stat(path)
+	return err == nil && time.Since(info.ModTime()) < d
+}
+
+// startPricingFetch runs the fetch as its own process, so goccc exits without
+// waiting on the network and the fetch still lands.
+var startPricingFetch = func() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "-refresh-pricing")
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 func doUpdateCheck(current string) *updateResult {
@@ -114,9 +141,34 @@ func fetchAndCachePricing(cacheFile string, client *http.Client) bool {
 		return false
 	}
 
-	_ = os.MkdirAll(filepath.Dir(cacheFile), 0o755)
-	_ = os.WriteFile(cacheFile, data, 0o644)
-	return true
+	return writeFileAtomic(cacheFile, data, 0o644) == nil
+}
+
+// writeFileAtomic replaces path in one step, so a concurrent reader never sees a partial file.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, perm)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 func normalizeVersion(v string) string {

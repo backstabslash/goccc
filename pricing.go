@@ -44,7 +44,6 @@ type PricingData struct {
 	FastModels              map[string]ModelPricing `json:"fast_models,omitempty"`
 	Families                []PricingFamily         `json:"families"`
 	DefaultModel            string                  `json:"default_model"`
-	DisplayNames            []PricingDisplayName    `json:"display_names"`
 	LongContextThreshold    int                     `json:"long_context_threshold,omitempty"`
 	WebSearchCost           float64                 `json:"web_search_cost,omitempty"`
 	InferenceGeoMultipliers map[string]float64      `json:"inference_geo_multipliers,omitempty"`
@@ -55,17 +54,11 @@ type PricingFamily struct {
 	Model  string `json:"model"`
 }
 
-type PricingDisplayName struct {
-	Prefix string `json:"prefix"`
-	Name   string `json:"name"`
-}
-
 var (
 	pricingTable            map[string]ModelPricing
 	fastPricingTable        map[string]ModelPricing
 	familyPrefixes          []PricingFamily
 	defaultPricing          ModelPricing
-	displayNames            []PricingDisplayName
 	longCtxThreshold        = 200_000
 	webSearchCostPerSearch  = 0.01
 	inferenceGeoMultipliers = map[string]float64{"us": 1.1}
@@ -164,10 +157,6 @@ func applyPricing(pd *PricingData) {
 	sort.Slice(familyPrefixes, func(i, j int) bool {
 		return len(familyPrefixes[i].Prefix) > len(familyPrefixes[j].Prefix)
 	})
-	displayNames = pd.DisplayNames
-	sort.Slice(displayNames, func(i, j int) bool {
-		return len(displayNames[i].Prefix) > len(displayNames[j].Prefix)
-	})
 	if p, ok := pricingTable[pd.DefaultModel]; ok {
 		defaultPricing = p
 	}
@@ -182,25 +171,15 @@ func applyPricing(pd *PricingData) {
 	}
 }
 
-// pricingRefreshDone is closed once the background refresh started by
-// initPricing finishes. Short-lived modes (statusline, session-end) exit as
-// soon as their work is done, which would kill the fire-and-forget fetch
-// before it lands; they wait on this channel briefly so the update isn't lost.
-var pricingRefreshDone chan struct{}
-
-const pricingRefreshWait = 2 * time.Second
+var (
+	pricingCacheFile     string
+	forcedRefreshStarted bool
+)
 
 func initPricing() {
 	cached := pricingCachePath()
-
-	done := make(chan struct{})
-	pricingRefreshDone = done
-	defer func() {
-		go func() {
-			defer close(done)
-			refreshPricingCache(cached)
-		}()
-	}()
+	pricingCacheFile = cached
+	defer refreshPricingCache(cached, pricingRefreshInterval)
 
 	if cached != "" {
 		if data, err := os.ReadFile(cached); err == nil {
@@ -219,16 +198,15 @@ func initPricing() {
 	applyPricing(pd)
 }
 
-// waitForPricingRefresh blocks up to timeout for the background refresh to land.
-// A fresh cache returns immediately, so this is effectively free on the common path.
-func waitForPricingRefresh(timeout time.Duration) {
-	if pricingRefreshDone == nil {
+// refreshForUnknownModel refetches pricing ahead of the age limit once a log names a
+// Claude model the table lacks. The new prices apply from the next run. The shared
+// attempt stamp throttles it, so a model missing upstream too doesn't refetch every run.
+func refreshForUnknownModel(model string) {
+	if forcedRefreshStarted || !strings.HasPrefix(model, "claude-") {
 		return
 	}
-	select {
-	case <-pricingRefreshDone:
-	case <-time.After(timeout):
-	}
+	forcedRefreshStarted = true
+	refreshPricingCache(pricingCacheFile, pricingRetryInterval)
 }
 
 // hasModelPrefix reports whether model starts with prefix at a version boundary.
@@ -251,7 +229,8 @@ func resolveBaseModel(model string) (string, ModelPricing) {
 			continue
 		}
 		pick := fp.Model
-		if minorAfter(model, fp.Prefix) > minorAfter(fp.Model, fp.Prefix) {
+		newer := minorAfter(model, fp.Prefix) > minorAfter(fp.Model, fp.Prefix)
+		if newer {
 			bestV := -1
 			for k := range pricingTable {
 				if !hasModelPrefix(k, fp.Prefix) {
@@ -263,9 +242,13 @@ func resolveBaseModel(model string) (string, ModelPricing) {
 			}
 		}
 		if p, ok := pricingTable[pick]; ok {
+			if newer {
+				refreshForUnknownModel(model)
+			}
 			return pick, p
 		}
 	}
+	refreshForUnknownModel(model)
 	return "", defaultPricing
 }
 
@@ -296,15 +279,25 @@ func (m ModelPricing) priceAt(ts time.Time) PriceFields {
 	return best
 }
 
+// trimVertexDate drops Vertex AI's "@" date stamp (claude-opus-4-5@20251101).
+func trimVertexDate(model string) string {
+	base, _, _ := strings.Cut(model, "@")
+	return base
+}
+
 func resolvePricing(model string, ts time.Time) ModelPricing {
 	baseModel, isFast := strings.CutSuffix(model, ":fast")
+	baseModel = trimVertexDate(baseModel)
 	resolved, fallback := resolveBaseModel(baseModel)
 	chosen := fallback
-	if isFast && len(fastPricingTable) > 0 {
+	if isFast {
 		if p, ok := fastPricingTable[resolved]; ok {
 			chosen = p
 		} else if p, ok := fastPricingTable[baseModel]; ok {
 			chosen = p
+		} else {
+			// Fast mode launched after the cached table; standard rates undercount it.
+			refreshForUnknownModel(baseModel)
 		}
 	}
 	chosen.PriceFields = chosen.priceAt(ts)
@@ -436,20 +429,47 @@ func calcCost(model string, usage Usage, ts time.Time) float64 {
 
 const fastMarker = " ⚡"
 
+// shortModel derives the display name from the ID, so models newer than the
+// cached pricing data still show their own name: claude-opus-5-5-20260101 → Opus 5.5.
 func shortModel(model string) string {
 	base, isFast := strings.CutSuffix(model, ":fast")
 	// Claude Code's statusline reports 1M-context aliases as "claude-opus-5[1m]"; drop it.
 	base, _, _ = strings.Cut(base, "[")
-	m := strings.TrimPrefix(strings.ToLower(base), "claude-")
-	for _, dn := range displayNames {
-		if !hasModelPrefix(m, dn.Prefix) {
+	rest, ok := strings.CutPrefix(strings.ToLower(trimVertexDate(base)), "claude-")
+	if !ok {
+		return model
+	}
+	// Pre-4 IDs put the version first (claude-3-5-sonnet), so words and digits are collected apart.
+	var words, version []string
+	for _, tok := range strings.Split(rest, "-") {
+		if tok == "" {
 			continue
 		}
-		name := dn.Name
-		if isFast {
-			name += fastMarker
+		if strings.Trim(tok, "0123456789.") == "" {
+			if len(tok) >= 8 {
+				break
+			}
+			version = append(version, tok)
+			continue
 		}
-		return name
+		words = append(words, strings.ToUpper(tok[:1])+tok[1:])
 	}
-	return model
+	if len(words) == 0 && len(version) == 0 {
+		return model
+	}
+	// Pre-3 IDs carry no family (claude-2.1).
+	name := "Claude"
+	if len(words) > 0 {
+		name, words = words[0], words[1:]
+	}
+	if len(version) > 0 {
+		name += " " + strings.Join(version, ".")
+	}
+	for _, w := range words {
+		name += " " + w
+	}
+	if isFast {
+		name += fastMarker
+	}
+	return name
 }
