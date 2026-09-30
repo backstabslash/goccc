@@ -36,8 +36,9 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 ## Conventions
 
 - **Flat package** — all code in `package main`, one concern per file
-- **Externalized pricing** — all pricing lives in `pricing.json` (embedded via `//go:embed`, remote-cached 24h). Adding a model or adjusting pricing = edit `pricing.json` only, no code changes. Cache fields are optional — `fillCacheDefaults()` derives from input price (0.1x read); Fable 5.1 / Mythos 5.1 read cache at 0.025x, so their `cache_read` is set explicitly. Fast mode pricing lives in `fast_models` map — same structure as `models`, resolved when `usage.speed == "fast"`
-- **Pricing resolution** — exact model ID → longest family prefix → `defaultPricing`
+- **Externalized pricing** — all pricing lives in `pricing.json` (embedded via `//go:embed`, remote-cached 6h; a log naming a Claude model or fast tier the table lacks refetches early). The fetch runs as a detached `goccc -refresh-pricing` process so nothing waits on the network; a `.attempt` stamp written before it throttles every fetch, failed ones included, to once per 15m. Adding a model or adjusting pricing = edit `pricing.json` only, no code changes. Cache fields are optional — `fillCacheDefaults()` derives from input price (0.1x read); Fable 5.1 / Mythos 5.1 read cache at 0.025x, so their `cache_read` is set explicitly. Fast mode pricing lives in `fast_models` map — same structure as `models`, resolved when `usage.speed == "fast"`
+- **Pricing resolution** — exact model ID → longest family prefix → `defaultPricing`. A Vertex `@date` stamp is dropped first. Version-first legacy IDs (`claude-3-5-haiku-…`) reach their modern-style keys through `claude-3-*` family prefixes
+- **Display names** — `shortModel()` derives them from the model ID (`claude-opus-5-5-20260101` → "Opus 5.5"), so new models need no entry. `display_names` in `pricing.json` is only read by releases before this change; keep it for them, don't extend it
 - **Time-based pricing** — a model's base price applies from the beginning of time; an optional `schedule: [{ "from": "YYYY-MM-DD", ...prices }]` adds dated overrides, and cost uses the entry with the greatest `from` ≤ the message timestamp. An entry is a **diff over the base**: omitted primaries (input/output, long-ctx) inherit the base — so a base bump keeps the long-context tier — but omitted **cache** tiers re-derive from the entry's own input, not the base's cache. `from` is **midnight UTC**, a billing boundary independent of the `-utc` display flag
 - **Billing modifiers from `usage`** — `inference_geo == "us"` multiplies token cost by `inference_geo_multipliers` from `pricing.json` (1.1x; searches excluded). `usage.iterations` is folded by `foldIterations()` in the parser: each counter becomes the max of the top level and the sum across iterations, so a top level that only reports the last pass can't undercount. `service_tier` is read but not priced — Priority Tier is a capacity commitment, not a per-token rate
 - **Fast mode bucketing** — parser appends `:fast` suffix to model key when `speed == "fast"`, creating separate buckets. `shortModel()` and `resolvePricing()` strip the suffix for display/lookup. The statusline's `model.id` may also carry a context alias (`claude-opus-5[1m]`) — `shortModel()` strips it and never shows it
@@ -49,7 +50,7 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 
 ## Don't
 
-- Don't change pricing in Go code — edit `pricing.json` (models, fast_models, families, display_names, long_context_threshold, web_search_cost, per-model `schedule`, `inference_geo_multipliers`)
+- Don't change pricing in Go code — edit `pricing.json` (models, fast_models, families, long_context_threshold, web_search_cost, per-model `schedule`, `inference_geo_multipliers`)
 - Don't use `log.Fatal` or `panic` — use `fmt.Fprintf(os.Stderr, ...)` + `os.Exit(1)`
 - Don't use UTC for day boundaries by default — bucket via `parseLocation` (which the `-utc` flag flips to UTC), not a hardcoded zone
 - Don't add JSON tags to `Bucket` — it's never directly marshalled; `printJSON` defines its own output structs

@@ -6,10 +6,12 @@ import (
 	"testing"
 )
 
-// Tests read the repo's embedded pricing.json, never the user's cache
+// Tests read the repo's embedded pricing.json, never the user's cache, and never
+// spawn a pricing fetch (os.Executable is the test binary).
 // The cache path itself is covered by TestInitPricingUsesCachedFile / FallsBackToEmbedded.
 func TestMain(m *testing.M) {
 	pricingCachePath = func() string { return "" }
+	startPricingFetch = func() error { return nil }
 	initPricing()
 	os.Exit(m.Run())
 }

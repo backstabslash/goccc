@@ -167,9 +167,6 @@ func runStatusline(baseDir string) {
 	}
 
 	fmt.Print(formatStatuslineWithConfig(sCost, tCost, input, mcpNames, branch, cfg.Statusline))
-
-	// Output is flushed; let the background refresh land before exit.
-	waitForPricingRefresh(pricingRefreshWait)
 }
 
 func hasSegment(segments []string, name string) bool {
@@ -306,8 +303,5 @@ func runSessionEnd(baseDir string) {
 		defer func() { _ = tty.Close() }()
 	}
 	_, _ = fmt.Fprintf(w, "\x1b[2K\r\n%s\n", line)
-
-	// Let the background refresh land before exit.
-	waitForPricingRefresh(pricingRefreshWait)
 	os.Exit(2)
 }
