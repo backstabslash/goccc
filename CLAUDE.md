@@ -47,6 +47,7 @@ Claude Code stores logs at `~/.claude/projects/<project-slug>/`. Sessions are `<
 - **Config** — `~/.goccc.json` stores currency, thresholds, and statusline config. `initConfig()` loads once. JSON output costs always in USD
 - **Session end hook** — writes to `/dev/tty` (bypasses Claude Code's stderr capture), falls back to stderr on Windows. Silently exits on any error
 - **Statusline segments** — registry in `statusline_config.go`. Segments with no data auto-hide. `"|"` forces line break
+- **Powerline & pet** — `powerline.go` reads the plain style's red/yellow value colors: by default (`alert_style: "block"`) the whole block takes the warn/alert color, with `"text"` just the value does, and `"none"` drops them. `pet.go` reads per-session state written by the `-pet-state` hook into the user cache dir (`goccc/sessions/`, never shared `/tmp`), which `-session-end` removes and a new session sweeps after 24h. Interrupts fire no hook, so the transcript tail is checked for Claude Code's interrupt text block
 
 ## Don't
 

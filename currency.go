@@ -109,6 +109,7 @@ func loadCurrencyConfig(path string) CurrencyConfig {
 	}
 	var cfg CurrencyConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "goccc: warning: ignoring %s: %v\n", path, err)
 		return CurrencyConfig{}
 	}
 	return cfg
@@ -157,10 +158,15 @@ func fetchExchangeRate(currency string) (float64, error) {
 	return rate, nil
 }
 
+// statuslineConfig is the "statusline" block initConfig loaded, so the statusline
+// doesn't read ~/.goccc.json a second time.
+var statuslineConfig *StatuslineConfig
+
 // initConfig loads config from ~/.goccc.json: thresholds and currency.
 func initConfig(symbolFlag string, rateFlag float64) error {
 	cfgPath := configPath()
 	cfg := loadCurrencyConfig(cfgPath)
+	statuslineConfig = cfg.Statusline
 
 	customWarn := cfg.WarnThreshold > 0
 	customAlert := cfg.AlertThreshold > 0
