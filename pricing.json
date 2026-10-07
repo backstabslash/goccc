@@ -18,6 +18,8 @@
     "claude-sonnet-4-5": { "input": 3.00,  "output": 15.00, "cache_read": 0.30,  "cache_write_5m": 3.75,   "cache_write_1h": 6.00 },
     "claude-sonnet-4":   { "input": 3.00,  "output": 15.00, "cache_read": 0.30,  "cache_write_5m": 3.75,   "cache_write_1h": 6.00 },
     "claude-sonnet-3":   { "input": 3.00,  "output": 15.00, "cache_read": 0.30,  "cache_write_5m": 3.75,   "cache_write_1h": 6.00 },
+    "claude-haiku-5-5":  { "input": 0.10,  "output": 0.50,  "cache_read": 0.01,  "cache_write_5m": 0.125,  "cache_write_1h": 0.20,
+      "long_ctx_input": 0.50, "long_ctx_output": 2.50, "long_ctx_cache_read": 0.05, "long_ctx_cache_write_5m": 0.625, "long_ctx_cache_write_1h": 1.00 },
     "claude-haiku-4-5":  { "input": 1.00,  "output": 5.00,  "cache_read": 0.10,  "cache_write_5m": 1.25,   "cache_write_1h": 2.00 },
     "claude-haiku-3-5":  { "input": 0.80,  "output": 4.00,  "cache_read": 0.08,  "cache_write_5m": 1.00,   "cache_write_1h": 1.60 },
     "claude-haiku-3":    { "input": 0.25,  "output": 1.25,  "cache_read": 0.025, "cache_write_5m": 0.3125, "cache_write_1h": 0.50 }
@@ -55,6 +57,7 @@
     { "prefix": "claude-sonnet-4-5", "model": "claude-sonnet-4-5" },
     { "prefix": "claude-sonnet-4",   "model": "claude-sonnet-4" },
     { "prefix": "claude-sonnet-3",   "model": "claude-sonnet-3" },
+    { "prefix": "claude-haiku-5-5",  "model": "claude-haiku-5-5" },
     { "prefix": "claude-haiku-4-5",  "model": "claude-haiku-4-5" },
     { "prefix": "claude-haiku-3-5",  "model": "claude-haiku-3-5" },
     { "prefix": "claude-haiku-3",    "model": "claude-haiku-3" }
@@ -80,11 +83,12 @@
     { "prefix": "sonnet-4-5", "name": "Sonnet 4.5" },
     { "prefix": "sonnet-4",   "name": "Sonnet 4" },
     { "prefix": "sonnet-3",   "name": "Sonnet 3.x" },
+    { "prefix": "haiku-5-5",  "name": "Haiku 5.5" },
     { "prefix": "haiku-4-5",  "name": "Haiku 4.5" },
     { "prefix": "haiku-3-5",  "name": "Haiku 3.5" },
     { "prefix": "haiku-3",    "name": "Haiku 3" }
   ],
-  "long_context_threshold": 200000,
+  "long_context_threshold": 100000,
   "web_search_cost": 0.01,
   "inference_geo_multipliers": { "us": 1.1 }
 }
