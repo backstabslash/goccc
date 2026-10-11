@@ -73,7 +73,7 @@ func TestSegmentLabel_Default(t *testing.T) {
 }
 
 func TestSegmentLabel_Override(t *testing.T) {
-	opts := map[string]SegmentOptions{"ctx": {Label: "context"}}
+	opts := map[string]SegmentOptions{"ctx": {Label: new("context")}}
 	label := segmentLabel("ctx", "ctx", opts)
 	if label != "context" {
 		t.Errorf("got %q, want context", label)
@@ -120,7 +120,7 @@ func TestRenderSessionCost_CustomEmoji(t *testing.T) {
 	ctx := &StatuslineContext{
 		SessionCost: 2.00,
 		Input:       makeTestInput(),
-		Options:     map[string]SegmentOptions{"session_cost": {Emoji: "🤑", Label: "sess"}},
+		Options:     map[string]SegmentOptions{"session_cost": {Emoji: "🤑", Label: new("sess")}},
 	}
 	got := renderSessionCost(ctx)
 	if got != "🤑 $2.00 sess" {

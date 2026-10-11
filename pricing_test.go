@@ -126,9 +126,6 @@ func TestInitPricingUsesCachedFile(t *testing.T) {
 	assertInt(t, "longCtxThreshold", longCtxThreshold, 100000)
 	assertCost(t, "webSearchCostPerSearch", webSearchCostPerSearch, 0.05)
 	assertCost(t, "inferenceGeoMultipliers[us]", inferenceGeoMultipliers["us"], 1.5)
-	if name := shortModel("claude-test-model"); name != "Test Model" {
-		t.Errorf("shortModel = %q, want %q", name, "Test Model")
-	}
 }
 
 func TestInitPricingFallsBackToEmbedded(t *testing.T) {
@@ -166,27 +163,6 @@ func TestLoadPricingForwardCompatible(t *testing.T) {
 	}
 }
 
-func TestWaitForPricingRefresh(t *testing.T) {
-	orig := pricingRefreshDone
-	t.Cleanup(func() { pricingRefreshDone = orig })
-
-	closed := make(chan struct{})
-	close(closed)
-	pricingRefreshDone = closed
-	start := time.Now()
-	waitForPricingRefresh(time.Second)
-	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Errorf("closed channel: returned after %v, want near-instant", elapsed)
-	}
-
-	pricingRefreshDone = make(chan struct{}) // never closed
-	start = time.Now()
-	waitForPricingRefresh(50 * time.Millisecond)
-	if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
-		t.Errorf("open channel: returned after %v, want >= timeout", elapsed)
-	}
-}
-
 // wantPricing lets cases name the entry they should land on instead of its prices.
 func wantPricing(t *testing.T, entry string) PriceFields {
 	t.Helper()
@@ -213,6 +189,8 @@ func TestResolvePricingRules(t *testing.T) {
 		{"fast tier", "claude-alpha-9:fast", "claude-alpha-9:fast"},
 		{"fast tier through a date suffix", "claude-alpha-9-20260101:fast", "claude-alpha-9:fast"},
 		{"no fast tier stays standard", "claude-beta-1:fast", "claude-beta-1"},
+		{"vertex date stamp", "claude-alpha-9@20260101", "claude-alpha-9"},
+		{"vertex date stamp on fast tier", "claude-alpha-9@20260101:fast", "claude-alpha-9:fast"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -560,17 +538,26 @@ func TestFoldIterations(t *testing.T) {
 	}
 }
 
+// Names derive from the ID alone, so a model released after the pricing data was
+// cached still shows its own name rather than its family's.
 func TestShortModel(t *testing.T) {
-	applyTestPricing(t, testPricingJSON)
 	tests := []struct{ model, want string }{
-		{"claude-alpha-9", "Alpha 9"},
-		{"claude-alpha-9-20260101", "Alpha 9"},
-		{"claude-alpha-20250101", "Alpha"},
-		{"claude-alpha-9:fast", "Alpha 9 ⚡"},
-		{"claude-alpha-9-20260101:fast", "Alpha 9 ⚡"},
-		{"claude-beta-1", "Beta 1"},
-		{"claude-alpha-9[1m]", "Alpha 9"},
-		{"claude-alpha-9-20260101[1m]", "Alpha 9"},
+		{"claude-zeta-9", "Zeta 9"},
+		{"claude-zeta-9-7", "Zeta 9.7"},
+		{"claude-zeta-9-7-20270101", "Zeta 9.7"},
+		{"claude-zeta-20250101", "Zeta"},
+		{"claude-zeta-9-7:fast", "Zeta 9.7 ⚡"},
+		{"claude-zeta-9-7-20270101:fast", "Zeta 9.7 ⚡"},
+		{"claude-zeta-9-7[1m]", "Zeta 9.7"},
+		{"claude-zeta-9-7-20270101[1m]", "Zeta 9.7"},
+		{"claude-zeta-9-7-preview", "Zeta 9.7 Preview"},
+		{"claude-3-5-sonnet-20241022", "Sonnet 3.5"},
+		{"claude-3-opus-20240229", "Opus 3"},
+		{"claude-20250101", "claude-20250101"},
+		{"claude-2.1", "Claude 2.1"},
+		{"claude-instant-1.2", "Instant 1.2"},
+		{"claude-opus-4@20250514", "Opus 4"},
+		{"claude-sonnet-4-5@20250929", "Sonnet 4.5"},
 		{"unknown-model", "unknown-model"},
 	}
 	for _, tt := range tests {
@@ -641,7 +628,7 @@ func TestPricingDataTiers(t *testing.T) {
 func TestPricingDataModelsAreWiredUp(t *testing.T) {
 	for model, p := range pricingTable {
 		if shortModel(model) == model {
-			t.Errorf("%s: no display_names entry", model)
+			t.Errorf("%s: no display name derives from this ID", model)
 		}
 		// Logs carry dated IDs, so every model must resolve to itself through the
 		// family prefixes as well as by exact match.
@@ -650,6 +637,25 @@ func TestPricingDataModelsAreWiredUp(t *testing.T) {
 				t.Errorf("%s resolves to %g/%g, want %s at %g/%g",
 					dated, got.Input, got.Output, model, p.Input, p.Output)
 			}
+		}
+	}
+}
+
+// Pre-4 IDs put the version first, so they need their own family prefixes to
+// reach the table's modern-style keys instead of the default model.
+func TestPricingDataLegacyIDs(t *testing.T) {
+	tests := []struct{ model, entry string }{
+		{"claude-3-opus-20240229", "claude-opus-3"},
+		{"claude-3-sonnet-20240229", "claude-sonnet-3"},
+		{"claude-3-5-sonnet-20241022", "claude-sonnet-3"},
+		{"claude-3-5-sonnet-latest", "claude-sonnet-3"},
+		{"claude-3-7-sonnet-20250219", "claude-sonnet-3"},
+		{"claude-3-haiku-20240307", "claude-haiku-3"},
+		{"claude-3-5-haiku-20241022", "claude-haiku-3-5"},
+	}
+	for _, tt := range tests {
+		if got, _ := resolveBaseModel(tt.model); got != tt.entry {
+			t.Errorf("%s resolved to %q, want %q", tt.model, got, tt.entry)
 		}
 	}
 }
@@ -681,23 +687,13 @@ func TestPricingDataPrefixes(t *testing.T) {
 		if _, ok := pricingTable[fp.Model]; !ok {
 			t.Errorf("families[%q] points at unknown model %q", fp.Prefix, fp.Model)
 		}
-		if !someModelHasPrefix(fp.Prefix) {
+		// Version-first legacy IDs (claude-3-opus-...) alias a table entry named the modern way.
+		if !someModelHasPrefix(fp.Prefix) && !strings.HasPrefix(fp.Prefix, "claude-3-") {
 			t.Errorf("families[%q] matches no model", fp.Prefix)
 		}
 		if seen[fp.Prefix] {
 			t.Errorf("families[%q] is declared twice", fp.Prefix)
 		}
 		seen[fp.Prefix] = true
-	}
-
-	seen = map[string]bool{}
-	for _, dn := range displayNames {
-		if !someModelHasPrefix("claude-" + dn.Prefix) {
-			t.Errorf("display_names[%q] matches no model", dn.Prefix)
-		}
-		if seen[dn.Prefix] {
-			t.Errorf("display_names[%q] is declared twice", dn.Prefix)
-		}
-		seen[dn.Prefix] = true
 	}
 }

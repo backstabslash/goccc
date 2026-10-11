@@ -700,3 +700,24 @@ func TestReadSessionEndInput_Empty(t *testing.T) {
 		t.Error("expected error for empty stdin")
 	}
 }
+
+func TestCostSnapshot_ReusedUntilTranscriptGrowsOrExpires(t *testing.T) {
+	useStateDir(t)
+	now := time.Now()
+	saveCostSnapshot("s1", &costSnapshot{TranscriptSize: 100, At: now, SessionCost: 1.5})
+
+	if s, ok := loadCostSnapshot("s1", 100, now.Add(time.Second)); !ok || s.SessionCost != 1.5 {
+		t.Errorf("expected cache hit, got %+v %v", s, ok)
+	}
+	if _, ok := loadCostSnapshot("s1", 120, now.Add(time.Second)); ok {
+		t.Error("grown transcript should miss")
+	}
+	if _, ok := loadCostSnapshot("s1", 100, now.Add(costCacheTTL)); ok {
+		t.Error("expired snapshot should miss")
+	}
+
+	removeSessionState("s1")
+	if _, ok := loadCostSnapshot("s1", 100, now); ok {
+		t.Error("removed snapshot should miss")
+	}
+}

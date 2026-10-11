@@ -132,6 +132,7 @@ Available segments:
 | `session_cost` | `💸 $X.XX session` | cost is $0 | emoji, label |
 | `today_cost` | `💰 $X.XX today` | cost is $0 | emoji, label |
 | `ctx` | `💭 XX% ctx` | — | emoji, label |
+| `ctx_window` | `💭 XX.X%/1.0M` | — | emoji |
 | `model` | `🤖 Model Name` | — | emoji |
 | `mcp` | `🔌 N MCPs (...)` | no MCPs detected | emoji, label |
 | `branch` | `🌿 branch-name` | no branch | emoji |
@@ -141,12 +142,76 @@ Available segments:
 | `lines` | `📝 +N -N` | both zero | emoji |
 | `duration` | `⏱️ Xm` | zero | emoji |
 | `cwd` | `📁 dirname` | empty | emoji |
+| `cwd_path` | `📁 ~/repos/app` (`.../b/c` when deep) | empty | emoji |
 | `worktree` | `🌳 worktree-name` | not in a linked worktree (submodules don't count) | emoji |
 | `version` | `🏷️ X.Y.Z` | empty | emoji |
+| `pet` | `( •ᴗ•)` kaomoji ([below](#pet)) | — | — |
+| `cap` | blank block starting a powerline row | not powerline | — |
 
 **`separator`** — string between segments (default: `" · "`).
 
-**`segment_options`** — per-segment overrides. `emoji` replaces the default icon (for `5h`/`7d`, replaces the dynamic 🔋/🪫). `label` replaces trailing text (only on segments marked above).
+**`segment_options`** — per-segment overrides. `emoji` replaces the default icon (for `5h`/`7d`, replaces the dynamic 🔋/🪫). `label` replaces trailing text (only on segments marked above); `""` hides it. `bg` / `fg` color the segment's block in [powerline](#powerline) style.
+
+### Powerline
+
+`"style": "powerline"` draws segments as colored blocks joined by arrows. It needs a [Nerd Font](https://www.nerdfonts.com/) and a truecolor terminal, and falls back to plain under `NO_COLOR`.
+
+```json
+{
+  "statusline": {
+    "style": "powerline",
+    "segments": ["cap", "today_cost", "session_cost", "ctx_window", "cwd_path", "model", "pet"],
+    "segment_options": {
+      "today_cost": { "label": "" },
+      "session_cost": { "label": "", "bg": "#383a4c" }
+    }
+  }
+}
+```
+
+Blocks cycle through the palette unless given a `bg`. Same-color neighbors merge, which is why `session_cost` above borrows `today_cost`'s color. Optional settings go under `statusline.powerline`:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `palette` | five Dracula slates | Block colors, cycled in order |
+| `fg` | `"#f8f8f2"` | Text color |
+| `alert_style` | `"block"` | Past a threshold: `"block"` recolors the whole block, `"text"` just the value, `"none"` nothing |
+| `warn_color` | `"#f1fa8c"` | Yellow-threshold color |
+| `alert_color` | `"#ff5555"` | Red-threshold color |
+| `arrow` | U+E0B0 | Glyph between blocks of different colors |
+| `divider` | `│` | Glyph between merged blocks |
+
+### Pet
+
+The `pet` segment is a kaomoji that works while Claude does, beams when a turn ends, and blinks when idle. It needs these hooks and a `refreshInterval` in `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": { "type": "command", "command": "goccc -statusline", "refreshInterval": 1 },
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "goccc -pet-state working" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "goccc -pet-state done" }] }],
+    "StopFailure": [{ "hooks": [{ "type": "command", "command": "goccc -pet-state idle" }] }],
+    "Notification": [{ "matcher": "idle_prompt", "hooks": [{ "type": "command", "command": "goccc -pet-state idle" }] }]
+  }
+}
+```
+
+Esc before Claude's first reply leaves no trace, so the pet looks busy until the next prompt or the idle notification a minute later.
+
+Faces and timing are set in `~/.goccc.json` (defaults shown; `0` or `[]` turns a feature off):
+
+```json
+{
+  "statusline": {
+    "pet": {
+      "idle": "( •ᴗ•)", "blink": "( -ᴗ-)", "happy": "( ^ᴗ^)", "working": "( •̀ᴗ•́)",
+      "spinner": ["◐", "◓", "◑", "◒"],
+      "blink_every": 4, "happy_seconds": 3
+    }
+  }
+}
+```
 
 ## Session Exit Hook
 
@@ -233,7 +298,7 @@ All configuration lives in `~/.goccc.json`. Every field is optional.
 | `currency` | [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217) currency code (e.g. `EUR`, `GBP`, `JPY`). Rate auto-fetched and cached 24h |
 | `warn_threshold` | Yellow color-coding threshold (default: `$25`, auto-scales with currency; custom values used as-is) |
 | `alert_threshold` | Red color-coding threshold (default: `$50`, auto-scales with currency; custom values used as-is) |
-| `statusline` | [Statusline customization](#customization) — segments, separator, per-segment overrides |
+| `statusline` | [Statusline customization](#customization) — segments, separator, per-segment overrides, [powerline style](#powerline), [pet](#pet) |
 
 ### Local Currency
 
@@ -259,6 +324,7 @@ JSON output always reports costs in USD, with a `currency` metadata object when 
 | `-utc` | — | `false` | Bucket days by UTC instead of local time (matches Anthropic API reporting) |
 | `-session-end` | — | `false` | Session exit hook mode (reads SessionEnd JSON from stdin) |
 | `-statusline` | — | `false` | Statusline mode for Claude Code (reads session JSON from stdin) |
+| `-pet-state` | — | — | Hook mode: record the [pet](#pet) state (`working`, `done`, `idle`) for the session on stdin |
 | `-currency-symbol` | — | — | Override currency symbol (requires `-currency-rate`) |
 | `-currency-rate` | — | `0` | Override exchange rate from USD (requires `-currency-symbol`) |
 | `-version` | `-V` | — | Print version and exit |
