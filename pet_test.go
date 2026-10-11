@@ -32,6 +32,19 @@ func TestResolvePet_ZeroAndEmptyTurnThingsOff(t *testing.T) {
 	}
 }
 
+func TestSaveCurrencyConfig_KeepsEmptySpinner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	saveCurrencyConfig(path, CurrencyConfig{Statusline: &StatuslineConfig{Pet: &PetConfig{Spinner: []string{}}}})
+
+	loaded := loadCurrencyConfig(path)
+	if s := loaded.Statusline.Pet.Spinner; s == nil || len(s) != 0 {
+		t.Errorf("spinner [] after save = %#v, want empty non-nil", s)
+	}
+	if p := resolvePet(loaded.Statusline.Pet); len(p.Spinner) != 0 {
+		t.Errorf("spinner came back on after save: %v", p.Spinner)
+	}
+}
+
 func TestPetFace(t *testing.T) {
 	p := PetConfig{Idle: "i", Blink: "b", Happy: "h", Working: "w", Spinner: []string{"1", "2", ""}, BlinkEvery: new(3)}
 	tests := []struct {

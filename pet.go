@@ -18,7 +18,7 @@ type PetConfig struct {
 	Blink        string   `json:"blink,omitempty"`
 	Happy        string   `json:"happy,omitempty"`
 	Working      string   `json:"working,omitempty"`
-	Spinner      []string `json:"spinner,omitempty"`
+	Spinner      []string `json:"spinner,omitzero"`        // omitzero keeps [] through the currency config rewrite
 	BlinkEvery   *int     `json:"blink_every,omitempty"`   // pointer so 0 can turn blinking off
 	HappySeconds *int     `json:"happy_seconds,omitempty"` // pointer so 0 can turn the happy face off
 }
