@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cmp"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,6 +106,7 @@ var segmentRegistry = map[string]segmentRenderer{
 	"version":      renderVersion,
 	"pet":          renderPet,
 	"cap":          renderCap,
+	"effort":       renderEffort,
 }
 
 func joinNonEmpty(parts ...string) string {
@@ -381,6 +384,25 @@ func renderWorktree(ctx *StatuslineContext) string {
 	}
 	emoji := segmentEmoji("worktree", "🌳", ctx.Options)
 	return fmt.Sprintf("%s %s", emoji, name)
+}
+
+// perTurnEffort is what the turn ran at, effort only the session setting.
+func renderEffort(ctx *StatuslineContext) string {
+	lines := transcriptTailLines(ctx.Input.TranscriptPath)
+	for i := len(lines) - 1; i >= 0; i-- {
+		var e struct {
+			Type          string `json:"type"`
+			Effort        string `json:"effort"`
+			PerTurnEffort string `json:"perTurnEffort"`
+		}
+		if json.Unmarshal(lines[i], &e) != nil || e.Type != "assistant" {
+			continue
+		}
+		if level := cmp.Or(e.PerTurnEffort, e.Effort); level != "" {
+			return segmentEmoji("effort", "🧠", ctx.Options) + " " + level
+		}
+	}
+	return ""
 }
 
 func renderVersion(ctx *StatuslineContext) string {

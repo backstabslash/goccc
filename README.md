@@ -145,6 +145,7 @@ Available segments:
 | `cwd_path` | `📁 ~/repos/app` (`.../b/c` when deep) | empty | emoji |
 | `worktree` | `🌳 worktree-name` | not in a linked worktree (submodules don't count) | emoji |
 | `version` | `🏷️ X.Y.Z` | empty | emoji |
+| `effort` | `🧠 high` (effort level of the latest reply) | no reply yet, or older Claude Code | emoji |
 | `pet` | `( •ᴗ•)` kaomoji ([below](#pet)) | — | — |
 | `cap` | blank block starting a powerline row | not powerline | — |
 

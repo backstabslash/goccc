@@ -166,23 +166,26 @@ func readPetActivity(sessionID, transcriptPath string, now time.Time, happyFor t
 
 const transcriptTailBytes = 64 * 1024
 
-func lastTurnInterrupted(transcriptPath string) bool {
+func transcriptTailLines(transcriptPath string) [][]byte {
 	f, err := os.Open(transcriptPath)
 	if err != nil {
-		return false
+		return nil
 	}
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
-		return false
+		return nil
 	}
 	offset := max(info.Size()-transcriptTailBytes, 0)
 	tail := make([]byte, info.Size()-offset)
 	if _, err := f.ReadAt(tail, offset); err != nil && err != io.EOF {
-		return false
+		return nil
 	}
+	return bytes.Split(tail, []byte("\n"))
+}
 
-	lines := bytes.Split(tail, []byte("\n"))
+func lastTurnInterrupted(transcriptPath string) bool {
+	lines := transcriptTailLines(transcriptPath)
 	for i := len(lines) - 1; i >= 0; i-- {
 		var entry struct {
 			Type    string `json:"type"`

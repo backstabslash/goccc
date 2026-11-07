@@ -531,3 +531,35 @@ func TestStatuslineConfigFromJSON_Missing(t *testing.T) {
 		t.Errorf("expected nil Statusline for missing key, got %+v", cfg.Statusline)
 	}
 }
+
+func TestRenderEffort(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{"latest reply wins", []string{
+			`{"type":"assistant","effort":"low"}`,
+			`{"type":"user","effort":"max"}`,
+			`{"type":"assistant","effort":"high"}`,
+		}, "🧠 high"},
+		{"per-turn beats session setting", []string{
+			`{"type":"assistant","effort":"medium","perTurnEffort":"max"}`,
+		}, "🧠 max"},
+		{"older log without effort", []string{
+			`{"type":"assistant","message":{"model":"claude-opus-5-5"}}`,
+		}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &StatuslineContext{Input: &StatuslineInput{TranscriptPath: writeTranscript(t, tt.lines...)}}
+			if got := renderEffort(ctx); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+	ctx := &StatuslineContext{Input: &StatuslineInput{}}
+	if got := renderEffort(ctx); got != "" {
+		t.Errorf("no transcript: got %q", got)
+	}
+}
